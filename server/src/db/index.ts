@@ -51,6 +51,7 @@ export function initDb(dbPath?: string): Database.Database {
   migrateModelsV14(db);
   migrateModelsV15(db);
   migrateModelsV16Vision(db);
+  migrateModelsV17IntelligenceTiers(db);
   ensureUnifiedKey(db);
 
   console.log(`Database initialized at ${resolvedPath}`);
@@ -1359,6 +1360,110 @@ function migrateModelsV16Vision(db: Database.Database) {
       UPDATE models SET supports_vision = 1
       WHERE platform = 'github'
         AND (model_id LIKE '%gpt-4o%' OR model_id LIKE '%gpt-4.1%' OR model_id LIKE '%gpt-5%')
+    `).run();
+  });
+  apply();
+}
+
+// ── V17: intelligence tier audit (2026-06) ──
+// `size_label` is the cross-provider capability tier that DOMINATES the router's
+// intelligence axis (intelligenceComposite = tier*1000 - intelligence_rank in
+// services/router.ts), so it must track real benchmarks rather than the
+// release-day guesses several rows were seeded with. This normalizes every model
+// family that has a published Artificial Analysis Intelligence Index v4.0 score
+// (served/default mode, June 2026) to the correct tier — and as a side effect
+// fixes cross-provider inconsistencies where the same model family had landed in
+// different tiers per provider (e.g. Llama 4 Scout, Llama 3.3 70B).
+//
+// Tier bands by AA Index v4.0:  Frontier ≥45 · Large 26–44 · Medium 13–25 · Small ≤12.
+//
+// Rules are keyed by model_id LIKE patterns so one rule covers a family across
+// all providers. Models with NO published AA Index are intentionally left at
+// their seeded tier (Cogito 2.1, Owl Alpha, Poolside Laguna, Hermes 3 405B,
+// Baidu CoBuddy, Groq Compound, GLM-4.6V Flash, GLM-4.5 Flash, Mistral Small 4,
+// Devstral). intelligence_rank (the within-tier tiebreak, low impact) is left
+// untouched. Idempotent — every statement is an absolute SET, safe to re-run.
+function migrateModelsV17IntelligenceTiers(db: Database.Database) {
+  const apply = db.transaction(() => {
+    // Frontier (AA ≥ 45): genuine frontier-class. Promotes Gemini 3.5 Flash (55)
+    // and Gemini 3 Flash Preview (46) up from Large.
+    db.prepare(`
+      UPDATE models SET size_label = 'Frontier' WHERE
+           LOWER(model_id) LIKE '%gemini-3.1-pro%'
+        OR LOWER(model_id) LIKE '%gemini-3.5-flash%'
+        OR LOWER(model_id) LIKE '%gemini-3-flash%'
+        OR LOWER(model_id) LIKE '%kimi-k2.6%'
+        OR LOWER(model_id) LIKE '%kimi-k2-thinking%'
+        OR LOWER(model_id) LIKE '%deepseek-v4-pro%'
+        OR LOWER(model_id) LIKE '%deepseek-v4-flash%'
+        OR LOWER(model_id) LIKE '%glm-5.1%'
+        OR LOWER(model_id) LIKE '%minimax-m2.7%'
+    `).run();
+
+    // Large (AA 26–44). Demotes Gemini 2.5 Pro (35), Nemotron 3 Super/120B (36),
+    // GLM-4.7 (42), DeepSeek V3.1/V3.2 (28/32), Trinity (32) down from Frontier;
+    // promotes Gemma 4 31B (39) / 26B (31) and Gemini 3.1 Flash-Lite (34) up.
+    db.prepare(`
+      UPDATE models SET size_label = 'Large' WHERE
+           LOWER(model_id) LIKE '%minimax-m2.5%'
+        OR LOWER(model_id) LIKE '%qwen3-next%'
+        OR LOWER(model_id) LIKE '%qwen3-coder-next%'
+        OR LOWER(model_id) LIKE '%gpt-oss-120b%' OR LOWER(model_id) LIKE '%gpt-oss:120b%'
+        OR LOWER(model_id) LIKE '%glm-4.7%'
+        OR LOWER(model_id) LIKE '%nemotron-3-super%' OR LOWER(model_id) LIKE '%nemotron-3-120b%'
+        OR LOWER(model_id) LIKE '%gemini-2.5-pro%'
+        OR LOWER(model_id) LIKE '%deepseek-v3.2%'
+        OR LOWER(model_id) LIKE '%deepseek-v3.1%'
+        OR LOWER(model_id) LIKE '%trinity-large%'
+        OR LOWER(model_id) LIKE '%mistral-medium%'
+        OR LOWER(model_id) LIKE '%magistral-medium%'
+        OR LOWER(model_id) LIKE '%gpt-4.1%'
+        OR LOWER(model_id) LIKE '%gemma-4-31b%' OR LOWER(model_id) LIKE '%gemma4:31b%'
+        OR LOWER(model_id) LIKE '%gemma-4-26b%'
+        OR LOWER(model_id) LIKE '%gemini-3.1-flash-lite%'
+    `).run();
+
+    // Medium (AA 13–25). Demotes Qwen3-Coder 480B (25) and Mistral Large 3 (23)
+    // down from Frontier; Llama 4 Maverick (18), GPT-4o (17), Gemini 2.5 Flash
+    // (21), GLM-4.5 Air (23), DeepSeek R1 Distill (17), Command A/R+ down from
+    // Large; unifies Llama 4 Scout (14) and Llama 3.3 70B (14) across providers.
+    db.prepare(`
+      UPDATE models SET size_label = 'Medium' WHERE
+           (LOWER(model_id) LIKE '%qwen3-coder%' AND LOWER(model_id) NOT LIKE '%qwen3-coder-next%')
+        OR LOWER(model_id) LIKE '%qwen-3-235b%' OR LOWER(model_id) LIKE '%qwen3-235b%'
+        OR LOWER(model_id) LIKE '%mistral-large%'
+        OR LOWER(model_id) LIKE '%gpt-oss-20b%' OR LOWER(model_id) LIKE '%gpt-oss:20b%'
+        OR LOWER(model_id) LIKE '%gpt-oss-safeguard-20b%' OR model_id = 'openai-fast'
+        OR LOWER(model_id) LIKE '%glm-4.5-air%'
+        OR LOWER(model_id) LIKE '%devstral-2%'
+        OR LOWER(model_id) LIKE '%deepseek-r1-distill%'
+        OR LOWER(model_id) LIKE '%qwen3-30b%'
+        OR LOWER(model_id) LIKE '%qwen3-32b%'
+        OR LOWER(model_id) LIKE '%llama-4-maverick%'
+        OR LOWER(model_id) LIKE '%llama-4-scout%'
+        OR LOWER(model_id) LIKE '%llama-3.3-70b%'
+        OR LOWER(model_id) LIKE '%llama-3.1-70b%'
+        OR (LOWER(model_id) LIKE '%gemini-2.5-flash%' AND LOWER(model_id) NOT LIKE '%flash-lite%')
+        OR LOWER(model_id) LIKE '%gemini-2.5-flash-lite%'
+        OR LOWER(model_id) LIKE '%gpt-4o%'
+        OR LOWER(model_id) LIKE '%command-a-03-2025%'
+        OR LOWER(model_id) LIKE '%command-r-plus%'
+        OR LOWER(model_id) LIKE '%nemotron-3-nano%'
+        OR LOWER(model_id) LIKE '%nemotron-nano-9b%'
+    `).run();
+
+    // Small (AA ≤ 12). Demotes Gemma 3 12B (9), Command R 08-2024 (legacy ~7),
+    // and Codestral (8) down from Medium.
+    db.prepare(`
+      UPDATE models SET size_label = 'Small' WHERE
+           LOWER(model_id) LIKE '%gemma-3-12b%'
+        OR LOWER(model_id) LIKE '%command-r-08-2024%'
+        OR LOWER(model_id) LIKE '%codestral%'
+        OR LOWER(model_id) LIKE '%llama-3.1-8b%' OR LOWER(model_id) LIKE '%llama3.1-8b%'
+        OR LOWER(model_id) LIKE '%meta-llama-3.1-8b%'
+        OR LOWER(model_id) LIKE '%ministral-8b%'
+        OR LOWER(model_id) LIKE '%granite-4.0-h-micro%'
+        OR LOWER(model_id) LIKE '%lfm-2.5-1.2b%'
     `).run();
   });
   apply();
