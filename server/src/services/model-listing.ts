@@ -1,4 +1,4 @@
-import type { ModelListRow } from '@freellmapi/shared/types.js';
+import type { ModelListRow } from '@bilvantisllmapi/shared/types.js';
 import { getDb } from '../db/index.js';
 import { isUnifyEnabled, getModelGroups } from './model-groups.js';
 
@@ -26,12 +26,17 @@ export interface ModelListing {
   autoContextWindow: number | null;
 }
 
-export function buildModelListing(): ModelListing {
+export function buildModelListing(userId: number): ModelListing {
+  // Multi-tenant: "available" means the REQUESTING user has an enabled key for
+  // the model's platform. userId is a validated integer from proxy auth, so
+  // interpolating it here is injection-safe and avoids rethreading a bound
+  // parameter through every query that embeds this expression.
   const availableExpr = `
     (CASE WHEN m.enabled = 1 AND EXISTS (
         SELECT 1 FROM api_keys k
         WHERE k.platform = m.platform
           AND k.enabled = 1
+          AND k.user_id = ${Math.trunc(userId)}
           AND (m.key_id IS NULL OR k.id = m.key_id)
       ) THEN 1 ELSE 0 END)`;
   const db = getDb();
@@ -54,7 +59,7 @@ export function buildModelListing(): ModelListing {
       return {
         id: g.canonicalId,
         name: g.groupLabel,
-        ownedBy: 'freellmapi',
+        ownedBy: 'bilvantisllmapi',
         available: infos.some(i => i.available === 1) ? 1 : 0,
         enabled: infos.some(i => i.enabled === 1) ? 1 : 0,
         contextWindow: ctxs.length ? Math.max(...ctxs) : null,

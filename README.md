@@ -1,21 +1,19 @@
 <div align="center">
 
-# FreeLLMAPI
+# BilvantisLLM-API
 
-**One OpenAI-compatible endpoint. 18 free LLM providers. 161 free models. ~1.7B tokens per month.**
+**One OpenAI-compatible endpoint. 18 free LLM providers. 80+ free models. ~1.7B tokens per month.**
 
 Aggregate the free tiers from Google, Groq, Cerebras, NVIDIA, Mistral, OpenRouter, GitHub Models, Cohere, Cloudflare, HuggingFace, Z.ai (Zhipu), Ollama, Kilo, Pollinations, LLM7, OVH AI Endpoints, OpenCode Zen, and AI Horde, plus custom OpenAI-compatible chat, embedding, image, and audio endpoints, behind a single `/v1` API. Keys are stored encrypted. A router picks the best available model for each request, falls over to the next provider when one is rate-limited, and tracks per-key usage so you stay under every free-tier cap.
 
-[![CI](https://github.com/tashfeenahmed/freellmapi/actions/workflows/ci.yml/badge.svg)](https://github.com/tashfeenahmed/freellmapi/actions/workflows/ci.yml)
-[![GitHub stars](https://img.shields.io/github/stars/tashfeenahmed/freellmapi?style=flat&logo=github&color=yellow)](https://github.com/tashfeenahmed/freellmapi/stargazers)
+[![CI](https://github.com/AI-Internal/bilvantis-llm-api/actions/workflows/ci.yml/badge.svg)](https://github.com/AI-Internal/bilvantis-llm-api/actions/workflows/ci.yml)
+[![GitHub stars](https://img.shields.io/github/stars/AI-Internal/bilvantis-llm-api?style=flat&logo=github&color=yellow)](https://github.com/AI-Internal/bilvantis-llm-api/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
-[![Docker image](https://img.shields.io/badge/ghcr.io-freellmapi-2496ED?logo=docker&logoColor=white)](https://github.com/tashfeenahmed/freellmapi/pkgs/container/freellmapi)
+[![Docker image](https://img.shields.io/badge/ghcr.io-bilvantisllmapi-2496ED?logo=docker&logoColor=white)](https://github.com/AI-Internal/bilvantis-llm-api/pkgs/container/bilvantis-llm-api)
 
-**[freellmapi.co](https://freellmapi.co)** · browse all 161 free models on the live catalog
-
-Your router updates its own model catalog. Free installs get each new model 30 days after it ships;
-**[Premium gets it the day it lands, and is 79 models ahead right now](https://freellmapi.co/?utm_source=github&utm_medium=readme#pricing)** ($19/yr, 30-day refund).
+Your router keeps its own model catalog up to date — new models, quota changes,
+and provider quirk fixes sync into your install automatically, no `git pull`.
 
 ![Fallback chain with per-provider token budget](repo-assets/fallback-chain.png)
 
@@ -34,7 +32,7 @@ Your router updates its own model catalog. Free installs get each new model 30 d
 - [Docker](#docker)
 - [Desktop app](#desktop-app)
 - [Languages](#languages)
-- [Premium (live catalog)](#premium-live-catalog)
+- [Model catalog](#model-catalog)
 - [Using the API](#using-the-api)
 - [Screenshots](#screenshots)
 - [How it works](#how-it-works)
@@ -48,9 +46,9 @@ Your router updates its own model catalog. Free installs get each new model 30 d
 
 Every serious AI lab now offers a free tier — a few million tokens a month, a few thousand requests a day. On its own each tier is a toy. Stacked together, they add up to roughly **1.7 billion tokens per month** of working inference capacity, across 160+ models from small-and-fast to reasonably capable.
 
-The problem is that stacking them by hand is painful: eighteen different SDKs, eighteen different rate limits, eighteen places a request can fail. FreeLLMAPI collapses that into one OpenAI-compatible endpoint. Point any OpenAI client library at your local server, and it routes transparently across whichever providers you've added keys for.
+The problem is that stacking them by hand is painful: eighteen different SDKs, eighteen different rate limits, eighteen places a request can fail. BilvantisLLM-API collapses that into one OpenAI-compatible endpoint. Point any OpenAI client library at your local server, and it routes transparently across whichever providers you've added keys for.
 
-And the free-tier landscape shifts weekly: providers launch models, retire them, and change quotas without notice. FreeLLMAPI tracks all of that for you. The router pulls a signed model catalog from [freellmapi.co](https://freellmapi.co) on its own, so your install keeps up without a `git pull`. See [Premium (live catalog)](#premium-live-catalog) for how fast it keeps up.
+And the free-tier landscape shifts weekly: providers launch models, retire them, and change quotas without notice. BilvantisLLM-API tracks all of that for you. The router pulls a signed model catalog on its own, so your install keeps up without a `git pull`. See [Model catalog](#model-catalog) for how it works.
 
 ## Supported providers
 
@@ -89,16 +87,16 @@ And the free-tier landscape shifts weekly: providers launch models, retire them,
 
 Plus a **custom** provider — point chat, embedding, image, or audio models at any OpenAI-compatible endpoint (llama.cpp, LM Studio, vLLM, a local Ollama, or a remote gateway) from the Keys page.
 
-The full, always-current list lives at **[freellmapi.co/models](https://freellmapi.co/models.html)** with per-model rate limits, context windows, and free-token budgets.
+The full, always-current list — with per-model rate limits, context windows, and free-token budgets — is visible in the dashboard's **Models** tab once you're running.
 
 ## Features
 
 - **OpenAI-compatible** — `POST /v1/chat/completions` and `GET /v1/models` work with the official OpenAI SDKs and any OpenAI-compatible client (LangChain, LlamaIndex, Continue, Hermes, etc.). Just change `base_url`.
 - **Responses API** — `POST /v1/responses` (the wire format current Codex CLI versions require) is implemented as a translating shim over the same router, with full streaming events and tool calls.
-- **Editor autocomplete** — `POST /v1/completions` translates legacy prompt/suffix requests into the same router, so VS Code ghost-text clients such as Continue can use FreeLLMAPI for inline suggestions.
+- **Editor autocomplete** — `POST /v1/completions` translates legacy prompt/suffix requests into the same router, so VS Code ghost-text clients such as Continue can use BilvantisLLM-API for inline suggestions.
 - **Anthropic Messages API** — `POST /v1/messages` (plus `/v1/messages/count_tokens`) speaks Anthropic's wire format over the same router, so **Claude Code** and the official Anthropic SDKs run against your free pool. `GET /v1/models` is content-negotiated (Anthropic shape when the client sends `anthropic-version`, OpenAI shape otherwise), and Claude families (`opus` / `sonnet` / `haiku` / `default`) map to `auto` or a pinned model on the Keys page. See [Anthropic / Claude clients](#anthropic--claude-clients).
 - **Image generation & text-to-speech** — `POST /v1/images/generations` and `POST /v1/audio/speech` route across the providers that serve media models, including custom OpenAI-compatible media endpoints. Browse and toggle them on the dashboard's **Models → Image / Audio** tabs.
-- **Self-updating model catalog** — the router syncs a signed catalog from freellmapi.co twice a day: new models, quota changes, and provider quirk fixes land in your install automatically. See [Premium (live catalog)](#premium-live-catalog).
+- **Self-updating model catalog** — the router syncs a signed catalog twice a day: new models, quota changes, and provider quirk fixes land in your install automatically. See [Model catalog](#model-catalog).
 - **Streaming and non-streaming** — Server-Sent Events for `stream: true`, JSON response otherwise. Every provider adapter implements both.
 - **Tool calling** — OpenAI-style `tools` / `tool_choice` requests are passed through, and assistant `tool_calls` + `tool` role follow-up messages round-trip across providers.
 - **Embeddings** — `/v1/embeddings` with family-based routing, including custom OpenAI-compatible embedding endpoints: failover only ever happens between providers serving the *same* model (vectors from different models are incompatible), never across models. See [Embeddings](#embeddings).
@@ -106,12 +104,12 @@ The full, always-current list lives at **[freellmapi.co/models](https://freellma
 - **Per-key rate tracking** — RPM, RPD, TPM, and TPD counters per `(platform, model, key)` so the router always picks a key that's under its caps.
 - **Sticky sessions** — Multi-turn conversations keep talking to the same model for 30 minutes to avoid the hallucination spike that comes from mid-conversation model switches.
 - **Encrypted key storage** — API keys are encrypted with AES-256-GCM before hitting SQLite; decryption happens in-memory just before a request.
-- **Unified API key** — Clients authenticate to your proxy with a single `freellmapi-…` bearer token. You never expose upstream provider keys to your apps.
+- **Unified API key** — Clients authenticate to your proxy with a single `bilvantisllmapi-…` bearer token. You never expose upstream provider keys to your apps.
 - **Dashboard login** — The admin UI and all `/api/*` routes are gated behind an email + password account (scrypt-hashed, session-token auth), set on first run. The `/v1` proxy keeps its own unified-key auth for apps.
 - **Health checks** — Periodic probes mark keys as `healthy`, `rate_limited`, `invalid`, or `error` so the router skips dead ones automatically.
 - **Admin dashboard** — React + Vite UI to manage keys, reorder the fallback chain, inspect analytics, and run prompts in a playground. Dark mode included.
 - **Analytics** — Per-request logging with latency, token counts, success rate, and per-provider breakdowns.
-- **Context handoff on model switch** — Optional. When a session falls over to a different model, injects one compact system message so the new model knows it is continuing an existing task. Disabled by default; enable with `FREELLMAPI_CONTEXT_HANDOFF=on_model_switch`. See [Context Handoff](#context-handoff).
+- **Context handoff on model switch** — Optional. When a session falls over to a different model, injects one compact system message so the new model knows it is continuing an existing task. Disabled by default; enable with `BILVANTISLLMAPI_CONTEXT_HANDOFF=on_model_switch`. See [Context Handoff](#context-handoff).
 - **Runs anywhere Node 20+ runs** — Windows, macOS, Linux servers, or a small ARM SBC (Raspberry Pi included). ~40 MB RSS at idle behind PM2 / systemd / whatever supervisor you prefer.
 
 ## Not yet supported
@@ -126,23 +124,23 @@ PRs that add any of these are very welcome. See [Contributing](#contributing).
 
 ## Quick start
 
-**One-liner** (Docker required — sets up `~/freellmapi`, generates an encryption key, pulls the image, and starts the container):
+**One-liner** (Docker + git required — clones the repo into `./bilvantisllmapi`, generates an encryption key, and starts the container):
 
 ```bash
-curl -fsSL https://freellmapi.co/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AI-Internal/bilvantis-llm-api/main/docs/install.sh | bash
 ```
 
-Prefer to read before you pipe to bash? [The script is here](https://freellmapi.co/install.sh). Re-running it is safe: your `.env` (and encryption key) is preserved and the container updates to `:latest`. Override the defaults with `FREELLMAPI_DIR`, `PORT`, or `HOST_BIND` env vars.
+Prefer to read before you pipe to bash? [The script is here](docs/install.sh). Re-running it is safe: your `.env` (and encryption key) is preserved. Override the defaults with `REPO_URL` or `TARGET_DIR` env vars.
 
-On Windows, the easiest path is the desktop **[`.exe` installer from Releases](https://github.com/tashfeenahmed/freellmapi/releases/latest)** (below); the Docker steps work in WSL or any bash shell.
+On Windows, the easiest path is the desktop **[`.exe` installer from Releases](https://github.com/AI-Internal/bilvantis-llm-api/releases/latest)** (below); the Docker steps work in WSL or any bash shell.
 
 **Or manually with Docker Compose.** It runs the API and dashboard together on port 3001 and persists SQLite in a named volume.
 
 **Prerequisites:** Docker, Docker Compose, OpenSSL.
 
 ```bash
-git clone https://github.com/tashfeenahmed/freellmapi.git
-cd freellmapi
+git clone https://github.com/AI-Internal/bilvantis-llm-api.git
+cd bilvantisllmapi
 
 # Generate an encryption key for at-rest key storage
 ENCRYPTION_KEY="$(openssl rand -hex 32)"
@@ -153,7 +151,7 @@ docker compose up -d
 
 Open http://localhost:3001, add your provider keys on the **Keys** page, reorder the **Fallback Chain** to taste, and grab your unified API key from the **Keys** page header. That unified key is what you point your OpenAI SDK at.
 
-Your fresh install ships with the free catalog snapshot (82 models today) and keeps itself updated from there. Everything the live feed adds on top is listed at [freellmapi.co/models](https://freellmapi.co/models.html).
+Your fresh install ships with the bundled catalog snapshot (80+ models today) and keeps itself updated from there via the twice-daily catalog sync.
 
 > **Reaching it from another machine?** By default the container is published only on `127.0.0.1`, so `http://<server-ip>:3001` won't load from another device (the page just hangs). To expose it on your LAN — e.g. a Raspberry Pi at `http://192.168.1.x:3001` — start it with `HOST_BIND=0.0.0.0`:
 >
@@ -168,8 +166,8 @@ Your fresh install ships with the free catalog snapshot (82 models today) and ke
 **Prerequisites:** Node.js 20+, npm.
 
 ```bash
-git clone https://github.com/tashfeenahmed/freellmapi.git
-cd freellmapi
+git clone https://github.com/AI-Internal/bilvantis-llm-api.git
+cd bilvantisllmapi
 npm install
 cp .env.example .env
 ENCRYPTION_KEY="$(node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))')"
@@ -189,9 +187,9 @@ Open http://localhost:5173 (the Vite dev UI), add your provider keys on the **Ke
 
 ### Declarative startup config
 
-For repeatable Docker/server installs, FreeLLMAPI can apply a JSON config on
-every boot. Set `FREEAPI_CONFIG_PATH=/path/to/freellmapi.config.json` or put the
-same JSON in `FREEAPI_CONFIG_JSON`. The config is idempotent: existing keys,
+For repeatable Docker/server installs, BilvantisLLM-API can apply a JSON config on
+every boot. Set `BILVANTIS_CONFIG_PATH=/path/to/bilvantisllmapi.config.json` or put the
+same JSON in `BILVANTIS_CONFIG_JSON`. The config is idempotent: existing keys,
 custom providers, model edits, fallback rows, and routing settings are updated
 instead of duplicated.
 
@@ -234,10 +232,10 @@ node server/dist/index.js     # server + dashboard both served on :3001
 
 ## Docker
 
-FreeLLMAPI publishes a single production image that contains the Express server and the built React dashboard:
+BilvantisLLM-API publishes a single production image that contains the Express server and the built React dashboard:
 
 ```bash
-docker pull ghcr.io/tashfeenahmed/freellmapi:latest   # or pin a release, e.g. :v1.2.3
+docker pull ghcr.io/ai-internal/bilvantis-llm-api:latest   # or pin a release, e.g. :v1.2.3
 ```
 
 The image is multi-arch (`linux/amd64` + `linux/arm64`, so it runs on a Raspberry Pi). Published tags: `latest` (default branch), `v*.*.*` (git release tags), and `sha-<commit>`.
@@ -246,33 +244,65 @@ The included `docker-compose.yml` is the recommended install path:
 
 ```bash
 docker compose up -d
-docker compose logs -f freellmapi
+docker compose logs -f bilvantisllmapi
 ```
 
 By default the container's port is bound to `127.0.0.1` (localhost only). To reach the dashboard/API from another machine on your network, publish it on all interfaces with `HOST_BIND=0.0.0.0 docker compose up -d` — only on a trusted LAN, since the proxy is single-user.
 
-SQLite data is stored in the `freellmapi-data` volume at `/app/server/data`.
+SQLite data is stored in the `bilvantisllmapi-data` volume at `/app/server/data`.
 Keep the same `.env` `ENCRYPTION_KEY` and volume when upgrading, because
 provider keys are encrypted at rest. If your host only persists a specific
-directory, set `FREEAPI_DB_PATH=/that/path/freellmapi.db`.
+directory, set `BILVANTIS_DB_PATH=/that/path/bilvantisllmapi.db`.
 
 On hosts with ephemeral disks, configure an encrypted backup target:
 
 ```env
-FREEAPI_DB_BACKUP_PATH=/app/server/data/freellmapi.db.backup
+BILVANTIS_DB_BACKUP_PATH=/app/server/data/bilvantisllmapi.db.backup
 # or:
-FREEAPI_DB_BACKUP_URL=https://example.com/freellmapi.db.backup
-FREEAPI_DB_BACKUP_TOKEN=optional-bearer-token
-FREEAPI_DB_BACKUP_KEY=64-char-hex-backup-key
-FREEAPI_DB_BACKUP_INTERVAL_MS=300000
+BILVANTIS_DB_BACKUP_URL=https://example.com/bilvantisllmapi.db.backup
+BILVANTIS_DB_BACKUP_TOKEN=optional-bearer-token
+BILVANTIS_DB_BACKUP_KEY=64-char-hex-backup-key
+BILVANTIS_DB_BACKUP_INTERVAL_MS=300000
 ```
 
-When the database file is missing at startup, FreeLLMAPI restores the backup
+When the database file is missing at startup, BilvantisLLM-API restores the backup
 before migrations run. While the server is running it uploads a fresh encrypted
-backup periodically. If `FREEAPI_DB_BACKUP_KEY` is omitted, the app uses
+backup periodically. If `BILVANTIS_DB_BACKUP_KEY` is omitted, the app uses
 `ENCRYPTION_KEY` for the backup envelope too.
 
 More Docker operations and examples live in [docker/README.md](./docker/README.md).
+
+## Multi-user / team deployment
+
+BilvantisLLM-API is multi-tenant. The **first account** created at `/setup` is the
+**admin**; the admin adds teammates under **Team** in the dashboard. Every user is
+fully isolated:
+
+- **Own provider keys** — each user adds their own Google/Groq/OpenRouter/etc. keys; the router only ever uses the requesting user's keys.
+- **Own proxy key** — each user gets their own `bilvantisllmapi-…` key for `/v1`; point your OpenAI/Anthropic client at it and you only touch your own providers.
+- **Own usage** — the Analytics page and error logs are scoped to the signed-in user.
+
+The **model catalog and routing config** (which models are enabled, the fallback
+chain, profiles) are **shared** and managed by admins.
+
+### Deploying as a container
+
+The image is self-contained (`Dockerfile`) and listens on `$PORT` (default 3001).
+Required/relevant env:
+
+| Var | Purpose |
+|---|---|
+| `ENCRYPTION_KEY` | 64-hex secret used to encrypt provider keys at rest. **Must stay stable** across deploys or stored keys can't be decrypted. |
+| `PORT` | Port to listen on (most hosts inject this). |
+| `HOST` | Bind address; set `0.0.0.0` on hosted platforms. |
+| `BILVANTIS_DB_PATH` | Override the SQLite path (default `/app/server/data/bilvantis.db`). |
+
+**Persistence matters:** all state (users, encrypted keys, usage) is SQLite on
+disk, so mount a **persistent volume** at `/app/server/data`. On Render, use the
+included [`render.yaml`](./render.yaml) (a paid instance with a disk) — Render's
+*free* web services have no persistent disk and wipe the DB on restart. For a
+free host, instead set the `BILVANTIS_DB_BACKUP_*` vars to back the encrypted DB
+up to object storage and restore it on boot (see the Docker section above).
 
 ## Desktop app
 
@@ -280,14 +310,14 @@ A native menu-bar app lives in [`desktop/`](./desktop): the entire router +
 dashboard running locally from your tray, with a glass popover showing live
 request stats.
 
-![FreeLLMAPI desktop app](repo-assets/desktop.png)
+![BilvantisLLM-API desktop app](repo-assets/desktop.png)
 
-**[Download from Releases](https://github.com/tashfeenahmed/freellmapi/releases/latest)** — the macOS `.dmg` and the Windows `.exe` installer are built and attached to every release by the [`desktop-release`](.github/workflows/desktop-release.yml) workflow. Or build it from this repo in a few minutes:
+**[Download from Releases](https://github.com/AI-Internal/bilvantis-llm-api/releases/latest)** — the macOS `.dmg` and the Windows `.exe` installer are built and attached to every release by the [`desktop-release`](.github/workflows/desktop-release.yml) workflow. Or build it from this repo in a few minutes:
 
 ```bash
 npm install
-npm run desktop:dist        # macOS  → desktop/dist-electron/FreeLLMAPI-…-arm64.dmg
-npm run desktop:dist:win    # Windows → "desktop/dist-electron/FreeLLMAPI Setup ….exe"
+npm run desktop:dist        # macOS  → desktop/dist-electron/BilvantisLLM-API-…-arm64.dmg
+npm run desktop:dist:win    # Windows → "desktop/dist-electron/BilvantisLLM-API Setup ….exe"
 ```
 
 > Locally built apps are unsigned, so Windows SmartScreen may warn on first run
@@ -316,13 +346,13 @@ register the locale in `client/src/i18n/I18nProvider.tsx` (and
 
 ## Works with OB-1 and other clients
 
-FreeLLMAPI is the free tier for **[OB-1](https://github.com/Overbrilliant/ob-1)**:
+BilvantisLLM-API is the free tier for **[OB-1](https://github.com/Overbrilliant/ob-1)**:
 the OB-1 CLI can clone, configure, start, health-check, and wire this proxy into
 its settings automatically. A new OB-1 user can pick **Start free** and reach a
 working OpenAI-compatible endpoint before creating any hosted account.
 
 It is also useful on its own. Any client that can target an OpenAI-compatible
-base URL can use FreeLLMAPI:
+base URL can use BilvantisLLM-API:
 
 - **OB-1**: managed automatically by the CLI, including anonymous providers.
 - **opencode, aider, Continue, LangChain, LlamaIndex**: set `base_url` to
@@ -332,50 +362,18 @@ base URL can use FreeLLMAPI:
 - **Local GPU boxes**: add custom OpenAI-compatible endpoints for Ollama,
   llama.cpp, LM Studio, vLLM, or an internal gateway.
 
-FreeLLMAPI is local-first and single-user by design. Your provider keys stay in
+BilvantisLLM-API is local-first and single-user by design. Your provider keys stay in
 your SQLite database, encrypted at rest, and requests go from your machine to the
 upstream providers you enabled.
 
-## Premium (live catalog)
+## Model catalog
 
 The router keeps its model catalog fresh on its own: it pulls a signed catalog
-from [freellmapi.co](https://freellmapi.co) twice a day and applies new models,
+snapshot from the upstream catalog service twice a day and applies new models,
 quota changes, and provider quirk fixes to your local DB. Your own
 enable/disable choices and custom providers are never touched, and every
-download is verified against a pinned Ed25519 key before it is applied.
-
-The catalog comes in two feeds:
-
-| | Free | Premium |
-|---|---|---|
-| Price | $0, forever | **$19/yr** or **$49 lifetime** |
-| Models served today (July 2026) | 82 | **161** |
-| New free models | 30 days after each one ships | **the day it ships** |
-| Quota changes and quirk fixes | on the same 30-day trail | within 2-3 days |
-| Activation | nothing to do | one key, all your devices |
-
-The gap is not hypothetical. Right now the live feed is **79 models ahead** of
-free installs, including Kimi K2.7 Code, GLM-5.2, MiniMax M3, Qwen3.5 397B, and
-Nemotron 3 Ultra 550B with a 1M-token context window. Each of those reaches free
-installs about a month after it shipped; Premium routers were already serving
-them on day one. Browse exactly what you're missing at
-**[freellmapi.co/models](https://freellmapi.co/models.html)**.
-
-Thirty days is a long time in this market. When a provider launches a strong
-new free model, quietly tightens a quota, or breaks a wire format, live-feed
-routers are patched within days while free installs wait for the model to age
-in. If you use your router every day, Premium is the difference between riding
-the free-tier wave and reading about it.
-
-**[Go live at freellmapi.co →](https://freellmapi.co/?utm_source=github&utm_medium=readme#pricing)**
-
-- $19/year or $49 once, lifetime. Stripe checkout, 30-day no-questions refund.
-- One `fla_` key covers every router you run: desktop, homelab, Raspberry Pi.
-- Activate in the dashboard under **Premium**; cancel or manage billing
-  self-serve at [freellmapi.co/manage](https://freellmapi.co/manage).
-- The router itself stays MIT-licensed and fully free, forever. Premium is only
-  the live feed, and it's what funds the daily model testing and catalog
-  maintenance that keep both tiers working.
+download is verified against a pinned Ed25519 key before it is applied. Point
+`CATALOG_BASE_URL` at your own catalog server to self-host the feed.
 
 The catalog server never sees your prompts, completions, or provider keys — the
 router stays fully self-hosted either way.
@@ -391,7 +389,7 @@ from openai import OpenAI
 
 client = OpenAI(
     base_url="http://localhost:3001/v1",
-    api_key="freellmapi-your-unified-key",
+    api_key="bilvantisllmapi-your-unified-key",
 )
 
 resp = client.chat.completions.create(
@@ -406,7 +404,7 @@ print("Routed via:", resp.headers.get("x-routed-via"))
 
 ```bash
 curl http://localhost:3001/v1/chat/completions \
-  -H "Authorization: Bearer freellmapi-your-unified-key" \
+  -H "Authorization: Bearer bilvantisllmapi-your-unified-key" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "auto",
@@ -428,15 +426,15 @@ for chunk in stream:
 
 **VS Code ghost-text autocomplete (Continue)**
 
-FreeLLMAPI exposes `/v1/completions` for editor autocomplete clients that send legacy OpenAI prompt/suffix requests. Example Continue config:
+BilvantisLLM-API exposes `/v1/completions` for editor autocomplete clients that send legacy OpenAI prompt/suffix requests. Example Continue config:
 
 ```yaml
 models:
-  - name: FreeLLMAPI Autocomplete
+  - name: BilvantisLLM-API Autocomplete
     provider: openai
     model: auto
     apiBase: http://localhost:3001/v1
-    apiKey: freellmapi-your-unified-key
+    apiKey: bilvantisllmapi-your-unified-key
     useLegacyCompletionsEndpoint: true
     roles:
       - autocomplete
@@ -533,7 +531,7 @@ print(len(resp.data), "vectors of", len(resp.data[0].embedding), "dims")
 
 ```bash
 curl http://localhost:3001/v1/embeddings \
-  -H "Authorization: Bearer freellmapi-your-unified-key" \
+  -H "Authorization: Bearer bilvantisllmapi-your-unified-key" \
   -H "Content-Type: application/json" \
   -d '{"model": "auto", "input": "hello world"}'
 ```
@@ -557,11 +555,11 @@ The default family, per-provider toggles, and priorities live on the dashboard's
 
 ### Anthropic / Claude clients
 
-FreeLLMAPI also speaks Anthropic's Messages API, so anything built for Claude — including **Claude Code** and the official Anthropic SDKs — can run against your free pool. Point the client at your server's **origin** (Anthropic clients append `/v1/messages` themselves) and authenticate with your unified key. Both `x-api-key` and `Authorization: Bearer` are accepted.
+BilvantisLLM-API also speaks Anthropic's Messages API, so anything built for Claude — including **Claude Code** and the official Anthropic SDKs — can run against your free pool. Point the client at your server's **origin** (Anthropic clients append `/v1/messages` themselves) and authenticate with your unified key. Both `x-api-key` and `Authorization: Bearer` are accepted.
 
 ```bash
 curl http://localhost:3001/v1/messages \
-  -H "x-api-key: freellmapi-your-unified-key" \
+  -H "x-api-key: bilvantisllmapi-your-unified-key" \
   -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
   -d '{
@@ -577,7 +575,7 @@ Claude model names map to your free pool on the **Keys → Anthropic** tab: each
 
 ```bash
 export ANTHROPIC_BASE_URL=http://localhost:3001
-export ANTHROPIC_AUTH_TOKEN=freellmapi-your-unified-key   # NOT ANTHROPIC_API_KEY
+export ANTHROPIC_AUTH_TOKEN=bilvantisllmapi-your-unified-key   # NOT ANTHROPIC_API_KEY
 claude
 ```
 
@@ -606,7 +604,7 @@ Request volume, success rate, tokens in and out, average latency, and per-provid
 ## How it works
 
 ```
-┌──────────────────┐   Bearer freellmapi-…   ┌─────────────────────────┐
+┌──────────────────┐   Bearer bilvantisllmapi-…   ┌─────────────────────────┐
 │  OpenAI SDK /    │ ──────────────────────▶ │  Express proxy (:3001)  │
 │  curl / any      │ ◀────────────────────── │  /v1/chat/completions   │
 │  OpenAI client   │      streamed tokens    └────────────┬────────────┘
@@ -635,10 +633,10 @@ Request volume, success rate, tokens in and out, average latency, and per-provid
 
 ## Context Handoff
 
-When FreeLLMAPI falls over to a different model mid-conversation (quota, rate limit, cooldown), the new model has no idea it is picking up someone else's task. **Context handoff** adds a single compact `system` message to the outbound request that tells the new model exactly that:
+When BilvantisLLM-API falls over to a different model mid-conversation (quota, rate limit, cooldown), the new model has no idea it is picking up someone else's task. **Context handoff** adds a single compact `system` message to the outbound request that tells the new model exactly that:
 
 ```
-FreeLLMAPI context handoff:
+BilvantisLLM-API context handoff:
 You are taking over an ongoing conversation from another model (groq:llama-3 → google:gemini-flash).
 Continue the user's task using the conversation context already provided in this request.
 Do not restart the task, re-ask already answered setup questions, or discard prior tool results.
@@ -652,7 +650,7 @@ Assistant: …
 **Enable it in `.env`:**
 
 ```env
-FREELLMAPI_CONTEXT_HANDOFF=on_model_switch
+BILVANTISLLMAPI_CONTEXT_HANDOFF=on_model_switch
 ```
 
 **How it works:**
@@ -663,7 +661,7 @@ FREELLMAPI_CONTEXT_HANDOFF=on_model_switch
 - Session key: `X-Session-Id` header if present, otherwise SHA-1 of the first user message (same as sticky sessions).
 - Storage is in-memory only. Nothing is written to disk or logged.
 
-> **Important:** Context Handoff improves continuity for conversations routed through FreeLLMAPI. It cannot recover provider-internal hidden state or messages that were never sent to the proxy.
+> **Important:** Context Handoff improves continuity for conversations routed through BilvantisLLM-API. It cannot recover provider-internal hidden state or messages that were never sent to the proxy.
 
 ## Limitations
 
@@ -799,11 +797,11 @@ Removed since the April 2026 review: Hugging Face, Moonshot, and MiniMax direct 
 
 ## Disclaimer
 
-**This project is for personal experimentation and learning, not production.** Free tiers exist so developers can prototype against them; they aren't a stable, supported inference substrate and shouldn't be treated as one. If you build something real on top of FreeLLMAPI, swap in a paid API before you ship. Your relationship with each upstream provider is governed by the terms you accepted when you created your account — those terms still apply when the traffic is proxied through this project, and you're responsible for complying with them.
+**This project is for personal experimentation and learning, not production.** Free tiers exist so developers can prototype against them; they aren't a stable, supported inference substrate and shouldn't be treated as one. If you build something real on top of BilvantisLLM-API, swap in a paid API before you ship. Your relationship with each upstream provider is governed by the terms you accepted when you created your account — those terms still apply when the traffic is proxied through this project, and you're responsible for complying with them.
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=tashfeenahmed/freellmapi&type=date&legend=top-left)](https://www.star-history.com/?repos=tashfeenahmed%2Ffreellmapi&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/chart?repos=AI-Internal/bilvantis-llm-api&type=date&legend=top-left)](https://www.star-history.com/?repos=AI-Internal%2Fbilvantis-llm-api&type=date&legend=top-left)
 
 ## License
 

@@ -110,10 +110,10 @@ interface NormalizedCustomModel {
 }
 
 function readConfigFromEnv(): { source: string; value: unknown } | null {
-  const inline = process.env.FREEAPI_CONFIG_JSON?.trim();
-  if (inline) return { source: 'FREEAPI_CONFIG_JSON', value: JSON.parse(inline) };
+  const inline = process.env.BILVANTIS_CONFIG_JSON?.trim();
+  if (inline) return { source: 'BILVANTIS_CONFIG_JSON', value: JSON.parse(inline) };
 
-  const configPath = process.env.FREEAPI_CONFIG_PATH?.trim();
+  const configPath = process.env.BILVANTIS_CONFIG_PATH?.trim();
   if (configPath) return { source: configPath, value: JSON.parse(fs.readFileSync(configPath, 'utf8')) };
 
   return null;

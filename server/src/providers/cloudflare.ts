@@ -2,7 +2,7 @@ import type {
   ChatMessage,
   ChatCompletionResponse,
   ChatCompletionChunk,
-} from '@freellmapi/shared/types.js';
+} from '@bilvantisllmapi/shared/types.js';
 import { BaseProvider, providerHttpError, type CompletionOptions } from './base.js';
 import { contentToString } from '../lib/content.js';
 import { recordQuotaObservationsFromResponse, type QuotaObservationContext } from '../services/provider-quota.js';

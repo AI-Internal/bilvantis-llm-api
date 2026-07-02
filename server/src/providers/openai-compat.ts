@@ -4,7 +4,7 @@ import type {
   ChatCompletionChunk,
   ChatToolCall,
   Platform,
-} from '@freellmapi/shared/types.js';
+} from '@bilvantisllmapi/shared/types.js';
 import { BaseProvider, providerHttpError, type CompletionOptions } from './base.js';
 import { rescueInlineToolCalls } from '../lib/tool-call-rescue.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';

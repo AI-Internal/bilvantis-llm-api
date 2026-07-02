@@ -5,11 +5,11 @@
 // which avoids templating strings into executeJavaScript.
 import { contextBridge, ipcRenderer } from 'electron';
 
-const TOKEN_KEY = 'freellmapi_dashboard_token';
-const arg = process.argv.find((a) => a.startsWith('--freeapi-token='));
+const TOKEN_KEY = 'bilvantisllmapi_dashboard_token';
+const arg = process.argv.find((a) => a.startsWith('--bilvantis-token='));
 if (arg) {
   try {
-    window.localStorage.setItem(TOKEN_KEY, arg.slice('--freeapi-token='.length));
+    window.localStorage.setItem(TOKEN_KEY, arg.slice('--bilvantis-token='.length));
   } catch {
     // localStorage unavailable — the dashboard will show its login screen.
   }
@@ -17,7 +17,7 @@ if (arg) {
 
 // Lets the client adapt its chrome (drag region, traffic-light padding,
 // no Sign out) when running inside the desktop shell.
-contextBridge.exposeInMainWorld('__FREEAPI_DESKTOP__', true);
+contextBridge.exposeInMainWorld('__BILVANTIS_DESKTOP__', true);
 
 // `desktop` class on <html> activates the client's translucent backdrop
 // (html.desktop in index.css). CAREFUL: for an http:// load the preload
@@ -42,7 +42,7 @@ try {
 // into localStorage.
 function reportTheme() {
   ipcRenderer.send(
-    'freeapi:theme-changed',
+    'bilvantis:theme-changed',
     document.documentElement.classList.contains('dark') ? 'dark' : 'light',
   );
 }
@@ -53,7 +53,7 @@ function reportTheme() {
 // localStorage from this preload world.
 function reportLocale() {
   const lang = document.documentElement.lang;
-  if (lang) ipcRenderer.send('freeapi:locale-changed', lang);
+  if (lang) ipcRenderer.send('bilvantis:locale-changed', lang);
 }
 window.addEventListener('DOMContentLoaded', () => {
   applyDesktopClass();

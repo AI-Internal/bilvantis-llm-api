@@ -1,5 +1,5 @@
-appId: com.freellmapi.desktop
-productName: FreeLLMAPI
+appId: com.bilvantisllmapi.desktop
+productName: BilvantisLLM-API
 directories:
   output: dist-electron
 files:

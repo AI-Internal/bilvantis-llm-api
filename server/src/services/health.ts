@@ -1,7 +1,7 @@
 import { getDb } from '../db/index.js';
 import { resolveProvider } from '../providers/index.js';
 import { decrypt } from '../lib/crypto.js';
-import type { Platform, KeyStatus } from '@freellmapi/shared/types.js';
+import type { Platform, KeyStatus } from '@bilvantisllmapi/shared/types.js';
 import { inferQuotaPoolKey } from './provider-quota.js';
 import type { Scheduler } from '../lib/scheduler.js';
 
@@ -54,7 +54,7 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
     // Include platform + base_url so a flapping CloudFront edge or DNS failure is
     // attributable to the responsible provider in one log read. The leading
     // "[Health] Key N (" prefix is preserved so the 12-hourly crash watchdog
-    // (cron bff5ae167d28) that scrapes /tmp/freellmapi.log for these lines
+    // (cron bff5ae167d28) that scrapes /tmp/bilvantisllmapi.log for these lines
     // continues to match unchanged.
     console.error(
       `[Health] Key ${keyId} (${row.platform}, base=${row.base_url ?? 'default'}) ` +
@@ -66,9 +66,14 @@ export async function checkKeyHealth(keyId: number): Promise<KeyStatus> {
   }
 }
 
-export async function checkAllKeys(): Promise<void> {
+// Check enabled keys. Pass a userId to check only that user's keys (dashboard
+// "check all"); omit it for the background scheduler that validates everyone's.
+export async function checkAllKeys(userId?: number): Promise<void> {
   const db = getDb();
-  const keys = db.prepare('SELECT id, platform FROM api_keys WHERE enabled = 1').all() as { id: number; platform: string }[];
+  const keys = (userId === undefined
+    ? db.prepare('SELECT id, platform FROM api_keys WHERE enabled = 1').all()
+    : db.prepare('SELECT id, platform FROM api_keys WHERE enabled = 1 AND user_id = ?').all(userId)
+  ) as { id: number; platform: string }[];
 
   console.log(`[Health] Checking ${keys.length} keys...`);
 

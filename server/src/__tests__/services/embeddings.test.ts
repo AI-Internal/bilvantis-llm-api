@@ -3,8 +3,10 @@ import type { MockedFunction } from 'vitest';
 import { initDb, getDb } from '../../db/index.js';
 import { encrypt } from '../../lib/crypto.js';
 import { resolveFamily, getDefaultFamily, runEmbeddings, EmbeddingsError } from '../../services/embeddings.js';
+import { ensureTestUser } from '../helpers/auth.js';
 
 const realFetch = globalThis.fetch;
+let testUserId: number;
 
 function addKey(platform: string, raw = `${platform}-test-key`) {
   const { encrypted, iv, authTag } = encrypt(raw);
@@ -34,6 +36,7 @@ describe('embeddings service', () => {
   beforeEach(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
+    testUserId = ensureTestUser().userId;
   });
 
   afterEach(() => {
@@ -92,7 +95,7 @@ describe('embeddings service', () => {
 
   describe('runEmbeddings', () => {
     it('rejects unknown models with a 400', async () => {
-      await expect(runEmbeddings('no-such-model', ['hi'])).rejects.toMatchObject({ status: 400 });
+      await expect(runEmbeddings(testUserId, 'no-such-model', ['hi'])).rejects.toMatchObject({ status: 400 });
     });
 
     it('embeds via the first provider in the family chain', async () => {
@@ -101,7 +104,7 @@ describe('embeddings service', () => {
       const fetchMock = vi.fn(async () => okEmbeddingResponse(2048));
       globalThis.fetch = fetchMock as any;
 
-      const result = await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello']);
+      const result = await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello']);
       expect(result.platform).toBe('nvidia');
       expect(result.dimensions).toBe(2048);
       expect(result.vectors).toHaveLength(1);
@@ -117,7 +120,7 @@ describe('embeddings service', () => {
         .mockResolvedValueOnce(okEmbeddingResponse(2048));
       globalThis.fetch = fetchMock as any;
 
-      const result = await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello']);
+      const result = await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello']);
       expect(result.platform).toBe('openrouter');
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(String(fetchMock.mock.calls[1][0])).toContain('openrouter.ai');
@@ -128,7 +131,7 @@ describe('embeddings service', () => {
       const fetchMock = vi.fn(async () => okEmbeddingResponse(2048));
       globalThis.fetch = fetchMock as any;
 
-      const result = await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello']);
+      const result = await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello']);
       expect(result.platform).toBe('openrouter');
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
@@ -138,12 +141,12 @@ describe('embeddings service', () => {
       addKey('openrouter');
       globalThis.fetch = vi.fn(async () => new Response('slow down', { status: 429 })) as any;
 
-      await expect(runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello'])).rejects.toMatchObject({ status: 429 });
+      await expect(runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello'])).rejects.toMatchObject({ status: 429 });
     });
 
     it('throws 503 when the family has no enabled providers', async () => {
       getDb().prepare("UPDATE embedding_models SET enabled = 0 WHERE family = 'bge-m3'").run();
-      await expect(runEmbeddings('bge-m3', ['hello'])).rejects.toMatchObject({ status: 503 });
+      await expect(runEmbeddings(testUserId, 'bge-m3', ['hello'])).rejects.toMatchObject({ status: 503 });
     });
 
     it('splits cloudflare account_id:token keys', async () => {
@@ -151,7 +154,7 @@ describe('embeddings service', () => {
       const fetchMock = vi.fn(async () => okEmbeddingResponse(1024));
       globalThis.fetch = fetchMock as any;
 
-      const result = await runEmbeddings('embeddinggemma-300m', ['hello']);
+      const result = await runEmbeddings(testUserId, 'embeddinggemma-300m', ['hello']);
       expect(result.platform).toBe('cloudflare');
       expect(String(fetchMock.mock.calls[0][0])).toContain('/accounts/acct-123/ai/v1/embeddings');
       const headers = (fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
@@ -164,7 +167,7 @@ describe('embeddings service', () => {
       const fetchMock = vi.fn(async () => new Response(JSON.stringify([[0.1, 0.2, 0.3]]), { status: 200 }));
       globalThis.fetch = fetchMock as any;
 
-      const result = await runEmbeddings('bge-m3', ['hello']);
+      const result = await runEmbeddings(testUserId, 'bge-m3', ['hello']);
       expect(result.platform).toBe('huggingface');
       expect(result.dimensions).toBe(3);
       expect(String(fetchMock.mock.calls[0][0])).toContain('feature-extraction');
@@ -178,7 +181,7 @@ describe('embeddings service', () => {
         .mockResolvedValueOnce(okEmbeddingResponse(2048));
       globalThis.fetch = fetchMock as any;
 
-      const result = await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello']);
+      const result = await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello']);
       expect(result.platform).toBe('openrouter');
     });
 
@@ -190,7 +193,7 @@ describe('embeddings service', () => {
         .mockResolvedValueOnce(okEmbeddingResponse(2048));
       globalThis.fetch = fetchMock as any;
 
-      await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello']);
+      await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello']);
       const rows = getDb().prepare(
         "SELECT platform, status, request_type FROM requests ORDER BY id",
       ).all() as { platform: string; status: string; request_type: string }[];
@@ -218,7 +221,7 @@ describe('embeddings service', () => {
       const fetchMock = vi.fn(async () => okEmbeddingResponse(3));
       globalThis.fetch = fetchMock as any;
 
-      const result = await runEmbeddings('local-embed', ['hello']);
+      const result = await runEmbeddings(testUserId, 'local-embed', ['hello']);
 
       expect(result.platform).toBe('custom');
       expect(String(fetchMock.mock.calls[0][0])).toBe('http://127.0.0.1:8181/v1/embeddings');
@@ -246,7 +249,7 @@ describe('embeddings service', () => {
         addKey('nvidia');
         const fetchMock = mockFetch(async () => okEmbeddingResponse(1536));
 
-        await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello'], 1536);
+        await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello'], 1536);
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
         const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
@@ -262,7 +265,7 @@ describe('embeddings service', () => {
         addKey('nvidia');
         const fetchMock = mockFetch(async () => okEmbeddingResponse(2048));
 
-        await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello']);
+        await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello']);
 
         const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
         expect(body).not.toHaveProperty('dimensions');
@@ -273,7 +276,7 @@ describe('embeddings service', () => {
         // Mock responds with 1536-dim vector even though model is native 2048.
         mockFetch(async () => okEmbeddingResponse(1536));
 
-        const result = await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello'], 1536);
+        const result = await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello'], 1536);
         expect(result.dimensions).toBe(1536);
         expect(result.vectors[0]).toHaveLength(1536);
       });
@@ -283,7 +286,7 @@ describe('embeddings service', () => {
         addKey('google');
         const fetchMock = mockFetch(async () => okEmbeddingResponse(768));
 
-        await runEmbeddings('gemini-embedding-001', ['hello'], 768);
+        await runEmbeddings(testUserId, 'gemini-embedding-001', ['hello'], 768);
 
         const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
         expect(body.dimensions).toBe(768);
@@ -294,7 +297,7 @@ describe('embeddings service', () => {
         addKey('github');
         const fetchMock = mockFetch(async () => okEmbeddingResponse(512));
 
-        await runEmbeddings('text-embedding-3-small', ['hello'], 512);
+        await runEmbeddings(testUserId, 'text-embedding-3-small', ['hello'], 512);
 
         const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
         expect(body.dimensions).toBe(512);
@@ -305,7 +308,7 @@ describe('embeddings service', () => {
         addKey('openrouter');
         const fetchMock = mockFetch(async () => okEmbeddingResponse(1024));
 
-        await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello'], 1024);
+        await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello'], 1024);
 
         const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body));
         expect(body.dimensions).toBe(1024);
@@ -317,12 +320,12 @@ describe('embeddings service', () => {
         // that adding the dimensions parameter does not change ANY other field.
         addKey('nvidia');
         const beforeMock = mockFetch(async () => okEmbeddingResponse(2048));
-        await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello']);
+        await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello']);
         const beforeBody = JSON.parse(String((beforeMock.mock.calls[0][1] as RequestInit).body));
 
         addKey('nvidia'); // re-seed; previous run consumed nothing
         const afterMock = mockFetch(async () => okEmbeddingResponse(2048));
-        await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello'], undefined);
+        await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello'], undefined);
         const afterBody = JSON.parse(String((afterMock.mock.calls[0][1] as RequestInit).body));
 
         expect(afterBody).toEqual(beforeBody);
@@ -337,7 +340,7 @@ describe('embeddings service', () => {
         fetchMock.mockResolvedValueOnce(new Response('rate limited', { status: 429 }));
         fetchMock.mockResolvedValueOnce(okEmbeddingResponse(1024));
 
-        const result = await runEmbeddings('llama-nemotron-embed-vl-1b-v2', ['hello'], 1024);
+        const result = await runEmbeddings(testUserId, 'llama-nemotron-embed-vl-1b-v2', ['hello'], 1024);
         expect(result.platform).toBe('openrouter');
         expect(result.dimensions).toBe(1024);
         expect(fetchMock).toHaveBeenCalledTimes(2);

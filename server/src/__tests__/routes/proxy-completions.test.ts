@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
@@ -44,7 +45,7 @@ describe('POST /v1/completions', () => {
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
-    app = createApp();
+    ensureTestUser();    app = createApp();
   });
 
   beforeEach(() => {

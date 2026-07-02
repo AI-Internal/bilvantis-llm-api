@@ -68,11 +68,11 @@ interface ProviderCredential {
   baseUrl: string | null;
 }
 
-function getProviderCredential(row: EmbeddingModelRow): ProviderCredential | null {
+function getProviderCredential(userId: number, row: EmbeddingModelRow): ProviderCredential | null {
   if (row.key_id != null) {
     const keyRow = getDb().prepare(
-      "SELECT id, encrypted_key, iv, auth_tag, base_url FROM api_keys WHERE id = ? AND enabled = 1 AND status IN ('healthy', 'unknown') LIMIT 1",
-    ).get(row.key_id) as { id: number; encrypted_key: string; iv: string; auth_tag: string; base_url: string | null } | undefined;
+      "SELECT id, encrypted_key, iv, auth_tag, base_url FROM api_keys WHERE id = ? AND user_id = ? AND enabled = 1 AND status IN ('healthy', 'unknown') LIMIT 1",
+    ).get(row.key_id, userId) as { id: number; encrypted_key: string; iv: string; auth_tag: string; base_url: string | null } | undefined;
     if (!keyRow) return null;
     try {
       return {
@@ -87,8 +87,8 @@ function getProviderCredential(row: EmbeddingModelRow): ProviderCredential | nul
   if (row.platform === 'custom') return null;
 
   const keyRow = getDb().prepare(
-    "SELECT id, encrypted_key, iv, auth_tag, base_url FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown') ORDER BY id LIMIT 1",
-  ).get(row.platform) as { id: number; encrypted_key: string; iv: string; auth_tag: string; base_url: string | null } | undefined;
+    "SELECT id, encrypted_key, iv, auth_tag, base_url FROM api_keys WHERE user_id = ? AND platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown') ORDER BY id LIMIT 1",
+  ).get(userId, row.platform) as { id: number; encrypted_key: string; iv: string; auth_tag: string; base_url: string | null } | undefined;
   if (!keyRow) return null;
   try {
     return {
@@ -233,9 +233,9 @@ function logEmbeddingRequest(
 ): void {
   try {
     getDb().prepare(`
-      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type)
-      VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'embedding')
-    `).run(row.platform, row.model_id, keyId, status, inputTokens, latencyMs, error);
+      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, user_id)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?, 'embedding', (SELECT user_id FROM api_keys WHERE id = ?))
+    `).run(row.platform, row.model_id, keyId, status, inputTokens, latencyMs, error, keyId);
   } catch (e) {
     console.error('Failed to log embedding request:', e);
   }
@@ -250,7 +250,7 @@ function logEmbeddingRequest(
  * request body. The override is independent of the model's native dimension — the
  * family registry still pins the canonical dimension, this just lets callers ask
  * for a smaller vector at the cost of some accuracy. */
-export async function runEmbeddings(model: string | undefined, inputs: string[], dimensions?: number): Promise<EmbeddingsResult> {
+export async function runEmbeddings(userId: number, model: string | undefined, inputs: string[], dimensions?: number): Promise<EmbeddingsResult> {
   const family = resolveFamily(model);
   if (!family) {
     throw new EmbeddingsError(
@@ -267,7 +267,7 @@ export async function runEmbeddings(model: string | undefined, inputs: string[],
 
   let lastError: EmbeddingsError | null = null;
   for (const row of chain) {
-    const credential = getProviderCredential(row);
+    const credential = getProviderCredential(userId, row);
     if (!credential) continue; // no usable key for this provider — try the next one
     const started = Date.now();
     try {

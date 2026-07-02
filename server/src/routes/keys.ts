@@ -7,8 +7,15 @@ import { getDb } from '../db/index.js';
 import { resolveProvider } from '../providers/index.js';
 import { encrypt, decrypt, maskKey } from '../lib/crypto.js';
 import { parseKeysFromFile, stripJsoncComments, stripTrailingCommas } from '../lib/key-parser.js';
+import type { SessionUser } from '../services/auth.js';
 
 export const keysRouter = Router();
+
+// The dashboard user making the request. keysRouter is always mounted behind
+// requireAuth, so req.user is set. Every provider key is owned by one user.
+function uid(req: Request): number {
+  return (req as Request & { user?: SessionUser }).user!.userId;
+}
 
 // Active providers — must match providers/index.ts registrations + shared/types.ts Platform.
 // Moonshot and MiniMax direct integrations were dropped in V4. HuggingFace
@@ -100,7 +107,7 @@ function splitRawKey(rawKey: string) {
   };
 }
 
-function insertImportedKey(platform: (typeof PLATFORMS)[number], keyName: string, keyValue: string) {
+function insertImportedKey(userId: number, platform: (typeof PLATFORMS)[number], keyName: string, keyValue: string) {
   if (platform === 'custom') {
     throw new Error('Custom providers must be added with a base URL');
   }
@@ -111,15 +118,15 @@ function insertImportedKey(platform: (typeof PLATFORMS)[number], keyName: string
   const db = getDb();
   const { encrypted, iv, authTag } = encrypt(keyValue.trim());
   db.prepare(`
-    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
-    VALUES (?, ?, ?, ?, ?, 'unknown', 1)
-  `).run(platform, keyName, encrypted, iv, authTag);
+    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, user_id)
+    VALUES (?, ?, ?, ?, ?, 'unknown', 1, ?)
+  `).run(platform, keyName, encrypted, iv, authTag, userId);
 }
 
 // List all keys (masked)
-keysRouter.get('/', (_req: Request, res: Response) => {
+keysRouter.get('/', (req: Request, res: Response) => {
   const db = getDb();
-  const rows = db.prepare('SELECT * FROM api_keys ORDER BY created_at DESC').all() as any[];
+  const rows = db.prepare('SELECT * FROM api_keys WHERE user_id = ? ORDER BY created_at DESC').all(uid(req)) as any[];
 
   const customModels = [
     ...db.prepare(`
@@ -211,7 +218,7 @@ keysRouter.post('/', (req: Request, res: Response) => {
   // A keyless provider needs only one sentinel row — re-enable an existing one
   // instead of piling up duplicates each time the user clicks "Add".
   if (isKeyless) {
-    const existing = db.prepare('SELECT id FROM api_keys WHERE platform = ? LIMIT 1').get(platform) as { id: number } | undefined;
+    const existing = db.prepare('SELECT id FROM api_keys WHERE platform = ? AND user_id = ? LIMIT 1').get(platform, uid(req)) as { id: number } | undefined;
     if (existing) {
       db.prepare("UPDATE api_keys SET enabled = 1, status = 'unknown' WHERE id = ?").run(existing.id);
       res.status(200).json({
@@ -228,9 +235,9 @@ keysRouter.post('/', (req: Request, res: Response) => {
 
   const { encrypted, iv, authTag } = encrypt(keyToStore);
   const result = db.prepare(`
-    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
-    VALUES (?, ?, ?, ?, ?, 'unknown', 1)
-  `).run(platform, label ?? '', encrypted, iv, authTag);
+    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, user_id)
+    VALUES (?, ?, ?, ?, ?, 'unknown', 1, ?)
+  `).run(platform, label ?? '', encrypted, iv, authTag, uid(req));
 
   res.status(201).json({
     id: result.lastInsertRowid,
@@ -308,8 +315,8 @@ keysRouter.post('/custom', (req: Request, res: Response) => {
     // the same endpoint updates its key/label; a new base_url gets its own
 // row instead of clobbering the previous provider. (#212) Re-submitting with a
 // blank key preserves the stored key; only a provided key updates credentials.
-    const existing = db.prepare("SELECT id, encrypted_key, iv, auth_tag FROM api_keys WHERE platform = 'custom' AND base_url = ? LIMIT 1")
-      .get(baseUrl) as { id: number; encrypted_key: string; iv: string; auth_tag: string } | undefined;
+    const existing = db.prepare("SELECT id, encrypted_key, iv, auth_tag FROM api_keys WHERE platform = 'custom' AND base_url = ? AND user_id = ? LIMIT 1")
+      .get(baseUrl, uid(req)) as { id: number; encrypted_key: string; iv: string; auth_tag: string } | undefined;
     let keyId: number;
     let storedKeyForMask = providedKey ?? 'no-key';
     if (existing) {
@@ -332,9 +339,9 @@ keysRouter.post('/custom', (req: Request, res: Response) => {
       const keyToStore = providedKey ?? 'no-key';
       const { encrypted, iv, authTag } = encrypt(keyToStore);
       const r = db.prepare(`
-        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, base_url)
-        VALUES ('custom', ?, ?, ?, ?, 'unknown', 1, ?)
-      `).run(label ?? 'Custom', encrypted, iv, authTag, baseUrl);
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, base_url, user_id)
+        VALUES ('custom', ?, ?, ?, ?, 'unknown', 1, ?, ?)
+      `).run(label ?? 'Custom', encrypted, iv, authTag, baseUrl, uid(req));
       keyId = Number(r.lastInsertRowid);
       storedKeyForMask = keyToStore;
     }
@@ -418,7 +425,7 @@ keysRouter.post('/import', (req: Request, res: Response, next: NextFunction) => 
         }
 
         try {
-          insertImportedKey(platformParse.data, keyName, keyValue);
+          insertImportedKey(uid(req), platformParse.data, keyName, keyValue);
           imported.push({ keyName, platform: platformParse.data });
         } catch (insertErr) {
           errors.push({ key: keyName, error: (insertErr as Error).message });
@@ -490,7 +497,7 @@ keysRouter.post('/import-selected', (req: Request, res: Response) => {
     }
 
     try {
-      insertImportedKey(key.platform, keyName, key.keyValue);
+      insertImportedKey(uid(req), key.platform, keyName, key.keyValue);
       imported++;
     } catch (err) {
       errors.push({ key: keyName, error: (err as Error).message });
@@ -514,14 +521,16 @@ keysRouter.delete('/:id', (req: Request, res: Response) => {
   }
 
   const db = getDb();
-  const row = db.prepare('SELECT platform FROM api_keys WHERE id = ?').get(id) as { platform: string } | undefined;
+  // Scope by owner: a user can only see/delete their own keys (a wrong owner
+  // reads as "not found", not "forbidden", so key ids aren't enumerable).
+  const row = db.prepare('SELECT platform FROM api_keys WHERE id = ? AND user_id = ?').get(id, uid(req)) as { platform: string } | undefined;
   if (!row) {
     res.status(404).json({ error: { message: 'Key not found' } });
     return;
   }
 
   const remove = db.transaction(() => {
-    db.prepare('DELETE FROM api_keys WHERE id = ?').run(id);
+    db.prepare('DELETE FROM api_keys WHERE id = ? AND user_id = ?').run(id, uid(req));
     // Custom models exist only because POST /custom registered them alongside
     // their endpoint key (#117) — they can't route without it. Cascade away
     // the models bound to THIS endpoint (#212); other custom providers keep
@@ -571,7 +580,7 @@ keysRouter.patch('/platform/:platform', (req: Request, res: Response) => {
   }
 
   const db = getDb();
-  const result = db.prepare('UPDATE api_keys SET enabled = ? WHERE platform = ?').run(enabled ? 1 : 0, platform);
+  const result = db.prepare('UPDATE api_keys SET enabled = ? WHERE platform = ? AND user_id = ?').run(enabled ? 1 : 0, platform, uid(req));
 
   res.json({ success: true, enabled, updatedKeys: result.changes });
 });
@@ -604,9 +613,10 @@ keysRouter.patch('/:id', (req: Request, res: Response) => {
   }
 
   values.push(id);
+  values.push(uid(req));
 
   const db = getDb();
-  const result = db.prepare(`UPDATE api_keys SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  const result = db.prepare(`UPDATE api_keys SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`).run(...values);
 
   if (result.changes === 0) {
     res.status(404).json({ error: { message: 'Key not found' } });

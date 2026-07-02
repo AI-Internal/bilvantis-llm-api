@@ -3,7 +3,7 @@ import type DatabaseType from 'better-sqlite3';
 import { getDb, getSetting, setSetting } from '../db/index.js';
 import { hasProvider } from '../providers/index.js';
 import { MEDIA_PLATFORMS } from './media.js';
-import type { Platform } from '@freellmapi/shared/types.js';
+import type { Platform } from '@bilvantisllmapi/shared/types.js';
 import type { Scheduler } from '../lib/scheduler.js';
 import {
   applyAllModelOverrides,
@@ -19,13 +19,12 @@ const MEDIA_MODALITIES = new Set(['image', 'audio']);
 /**
  * catalog-sync — keeps the local model catalog in step with the published one.
  *
- * Twice a day (and on demand) the server pulls the signed catalog from the
- * catalog service. A valid Premium license key (Bearer) gets the live tier,
- * refreshed every 2-3 days; everyone else gets the monthly snapshot — so free
- * installs still self-heal, just on a slower cadence. The response is verified
- * against a pinned Ed25519 public key over the exact bytes received; anything
- * unsigned or tampered with is discarded, which means a compromised CDN or
- * MITM cannot inject models or quirks into the router.
+ * Twice a day (and on demand) the server pulls the signed catalog snapshot
+ * from the catalog service, so installs self-heal as model availability and
+ * quotas change upstream. The response is verified against a pinned Ed25519
+ * public key over the exact bytes received; anything unsigned or tampered
+ * with is discarded, which means a compromised CDN or MITM cannot inject
+ * models or quirks into the router.
  *
  * The bundled migrations remain the baseline: a fetched catalog is applied
  * only when it is NEWER than what the binary shipped with (MIN_CATALOG_VERSION
@@ -33,6 +32,11 @@ const MEDIA_MODALITIES = new Set(['image', 'audio']);
  * app version added via migrations.
  */
 
+// Upstream source of the free, signed model catalog. This points at the public
+// FreeLLMAPI catalog service (the free monthly snapshot is served without any
+// auth), which is what keeps a fresh install self-updating. Point
+// CATALOG_BASE_URL — and CATALOG_PUBKEY — at your own catalog server to
+// self-host the feed instead.
 const DEFAULT_BASE_URL = 'https://api.freellmapi.co';
 
 // The Ed25519 public key the production catalog is signed with. The private
@@ -52,8 +56,6 @@ const BOOT_DELAY_MS = 10 * 1000; // let the server settle before first sync
 const FETCH_TIMEOUT_MS = 20 * 1000;
 
 // settings table keys
-export const SETTING_LICENSE_KEY = 'premium_license_key';
-export const SETTING_LICENSE_STATUS = 'premium_license_status'; // JSON LicenseStatus
 const SETTING_APPLIED_VERSION = 'catalog_applied_version';
 const SETTING_APPLIED_TIER = 'catalog_applied_tier';
 const SETTING_APPLIED_JSON = 'catalog_applied_json';
@@ -67,16 +69,6 @@ export function catalogBaseUrl(): string {
 function catalogPublicKey(): crypto.KeyObject {
   const pem = process.env.CATALOG_PUBKEY ? process.env.CATALOG_PUBKEY.replace(/\\n/g, '\n') : PINNED_CATALOG_PUBKEY;
   return crypto.createPublicKey({ key: pem, format: 'pem' });
-}
-
-export interface LicenseStatus {
-  valid: boolean;
-  plan: 'annual' | 'lifetime' | null;
-  status: string | null;
-  expiresAt: string | null;
-  cancelAtPeriodEnd?: boolean;
-  reason?: string;
-  checkedAtMs: number;
 }
 
 interface CatalogQuirk {
@@ -342,21 +334,18 @@ export function applyCatalog(db: DatabaseType.Database, catalog: Catalog): NonNu
 
 /**
  * Fetch the catalog, verify its signature, and apply it if it moves us forward.
- * `force` skips the `since` short-circuit — used right after a license key is
- * added or removed, where the tier can change without the version changing.
+ * `force` skips the `since` short-circuit — used for an on-demand refresh where
+ * we want the full catalog re-evaluated regardless of the applied version.
  */
 export async function syncCatalog(force = false): Promise<SyncResult> {
   const db = getDb();
-  const key = getSetting(SETTING_LICENSE_KEY);
   const applied = getSetting(SETTING_APPLIED_VERSION);
 
   try {
-    const headers: Record<string, string> = {};
-    if (key) headers.Authorization = `Bearer ${key}`;
     const url = new URL(`${catalogBaseUrl()}/v1/latest`);
     if (applied && !force) url.searchParams.set('since', applied);
 
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 
     if (res.status === 304) {
       setSetting(SETTING_LAST_SYNC_MS, String(Date.now()));
@@ -412,38 +401,6 @@ export async function syncCatalog(force = false): Promise<SyncResult> {
     console.warn(`[catalog-sync] ${message}`);
     setSetting(SETTING_LAST_ERROR, message);
     return { ok: false, action: 'error', detail: message };
-  }
-}
-
-/** Revalidate the stored license against the catalog service and cache the result. */
-export async function refreshLicenseStatus(): Promise<LicenseStatus | null> {
-  const key = getSetting(SETTING_LICENSE_KEY);
-  if (!key) return null;
-  try {
-    const res = await fetch(`${catalogBaseUrl()}/v1/license/check`, {
-      headers: { Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok && res.status !== 401) throw new Error(`HTTP ${res.status}`);
-    const body = (await res.json()) as Omit<LicenseStatus, 'checkedAtMs'>;
-    const status: LicenseStatus = { ...body, checkedAtMs: Date.now() };
-    setSetting(SETTING_LICENSE_STATUS, JSON.stringify(status));
-    return status;
-  } catch (err) {
-    // Offline or service down: keep the cached status. Entitlement is enforced
-    // server-side at /v1/latest anyway — this cache is informational UI state.
-    console.warn(`[catalog-sync] license check unreachable: ${err instanceof Error ? err.message : err}`);
-    return getCachedLicenseStatus();
-  }
-}
-
-export function getCachedLicenseStatus(): LicenseStatus | null {
-  const raw = getSetting(SETTING_LICENSE_STATUS);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as LicenseStatus;
-  } catch {
-    return null;
   }
 }
 
@@ -512,7 +469,6 @@ export function startCatalogSync(scheduler: Scheduler): void {
   }
   reapplyCachedCatalog();
   const run = () => {
-    void refreshLicenseStatus();
     void syncCatalog();
   };
   cancelBootTimer = scheduler.after(BOOT_DELAY_MS, run);

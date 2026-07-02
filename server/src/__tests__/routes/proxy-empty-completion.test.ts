@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
 import type { Express } from 'express';
 
 // Script the provider per-test: every platform resolves to this fake, so the
@@ -59,7 +60,7 @@ describe('Empty-completion failover', () => {
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
-    app = createApp();
+    ensureTestUser();    app = createApp();
     key = getUnifiedApiKey();
 
     const db = getDb();

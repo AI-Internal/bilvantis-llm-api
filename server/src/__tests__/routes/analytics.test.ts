@@ -3,9 +3,24 @@ import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { getDb, initDb } from '../../db/index.js';
 import { logRequest } from '../../lib/request-log.js';
+import { encrypt } from '../../lib/crypto.js';
 import { mintDashboardToken, isGatedApiPath } from '../helpers/auth.js';
 
 let dashToken = '';
+// The session user analytics is scoped to (the account mintDashboardToken made).
+let userId = 0;
+
+// Seed an api_key owned by the analytics user (the default-owner trigger
+// attaches an ownerless insert to the first user). Returns its id so logRequest
+// rows attribute to `userId` via key_id → user_id.
+function seedUserKey(): number {
+  const { encrypted, iv, authTag } = encrypt('analytics-test-key');
+  const r = getDb().prepare(`
+    INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
+    VALUES ('groq', 'analytics', ?, ?, ?, 'healthy', 1)
+  `).run(encrypted, iv, authTag);
+  return Number(r.lastInsertRowid);
+}
 
 async function request(app: Express, path: string) {
   const server = app.listen(0);
@@ -24,9 +39,9 @@ async function request(app: Express, path: string) {
 function insertRequest(createdAt: string) {
   const db = getDb();
   db.prepare(`
-    INSERT INTO requests (platform, model_id, status, input_tokens, output_tokens, latency_ms, error, created_at)
-    VALUES ('test', 'test-model', 'success', 1, 2, 3, NULL, ?)
-  `).run(createdAt);
+    INSERT INTO requests (platform, model_id, status, input_tokens, output_tokens, latency_ms, error, created_at, user_id)
+    VALUES ('test', 'test-model', 'success', 1, 2, 3, NULL, ?, ?)
+  `).run(createdAt, userId);
   upsertAggregate(db, createdAt, 'success', 1, 2);
 }
 
@@ -40,9 +55,9 @@ function insertTokensRequest(
 ) {
   const db = getDb();
   db.prepare(`
-    INSERT INTO requests (platform, model_id, status, input_tokens, output_tokens, latency_ms, error, created_at)
-    VALUES (?, ?, ?, ?, ?, 3, NULL, ?)
-  `).run(platform, modelId, status, inputTokens, outputTokens, createdAt);
+    INSERT INTO requests (platform, model_id, status, input_tokens, output_tokens, latency_ms, error, created_at, user_id)
+    VALUES (?, ?, ?, ?, ?, 3, NULL, ?, ?)
+  `).run(platform, modelId, status, inputTokens, outputTokens, createdAt, userId);
   upsertAggregate(db, createdAt, status, inputTokens, outputTokens);
 }
 
@@ -92,6 +107,7 @@ describe('Analytics API', () => {
     initDb(':memory:');
     app = createApp();
     dashToken = mintDashboardToken();
+    userId = (getDb().prepare('SELECT id FROM users ORDER BY id ASC LIMIT 1').get() as { id: number }).id;
   });
 
   beforeEach(() => {
@@ -143,9 +159,12 @@ describe('Analytics API', () => {
   // and getSinceTimestamp() agree on "now".
   it('logRequest writes space-format hour keys and they round-trip through summary', async () => {
     vi.useRealTimers();
-    logRequest('groq', 'llama-3.3-70b-versatile', 0, 'success', 100, 50, 12, null);
-    logRequest('groq', 'llama-3.3-70b-versatile', 0, 'success', 200, 70, 15, null);
-    logRequest('groq', 'llama-3.3-70b-versatile', 0, 'error', 30, 0, 9, 'boom');
+    // Attribute via a real key owned by the analytics user so the per-user
+    // summary counts these rows (logRequest derives user_id from key_id).
+    const keyId = seedUserKey();
+    logRequest('groq', 'llama-3.3-70b-versatile', keyId, 'success', 100, 50, 12, null);
+    logRequest('groq', 'llama-3.3-70b-versatile', keyId, 'success', 200, 70, 15, null);
+    logRequest('groq', 'llama-3.3-70b-versatile', keyId, 'error', 30, 0, 9, 'boom');
 
     // Tight, clock-independent guard: the stored key must match SQLite's
     // created_at text shape (space separator), never a 'T'. A 'T' here is the
@@ -213,9 +232,9 @@ describe('Analytics API', () => {
   describe('pinned vs auto tracking', () => {
     function insertPinnedRequest(modelId: string, requestedModel: string | null, createdAt: string) {
       getDb().prepare(`
-        INSERT INTO requests (platform, model_id, requested_model, status, input_tokens, output_tokens, latency_ms, error, created_at)
-        VALUES ('test', ?, ?, 'success', 1, 2, 3, NULL, ?)
-      `).run(modelId, requestedModel, createdAt);
+        INSERT INTO requests (platform, model_id, requested_model, status, input_tokens, output_tokens, latency_ms, error, created_at, user_id)
+        VALUES ('test', ?, ?, 'success', 1, 2, 3, NULL, ?, ?)
+      `).run(modelId, requestedModel, createdAt, userId);
       upsertAggregate(getDb(), createdAt, 'success', 1, 2);
     }
 

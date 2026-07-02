@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ChatMessage, ChatCompletionChoice, ChatCompletionResponse, ChatToolCall, TokenUsage } from '@freellmapi/shared/types.js';
+import type { ChatMessage, ChatCompletionChoice, ChatCompletionResponse, ChatToolCall, TokenUsage } from '@bilvantisllmapi/shared/types.js';
 import {
   routePinnedModel, routeRequest, getOrderedFusionChain, resolveFusionCandidate,
   recordRateLimitHit, recordSuccess, type RouteResult, type FusionCandidate,
@@ -419,7 +419,7 @@ export function diversifyChain(ordered: FusionCandidate[]): FusionCandidate[] {
  * both the panel and its refills span genuinely different perspectives before
  * doubling up on either axis.
  */
-function selectPanel(config: FusionConfig, requirements: { requireTools?: boolean } = {}): { panel: FusionCandidate[]; overflow: FusionCandidate[]; dropped: string[] } {
+function selectPanel(userId: number, config: FusionConfig, requirements: { requireTools?: boolean } = {}): { panel: FusionCandidate[]; overflow: FusionCandidate[]; dropped: string[] } {
   const maxK = panelMaxK();
 
   if (config.models && config.models.length > 0) {
@@ -440,7 +440,7 @@ function selectPanel(config: FusionConfig, requirements: { requireTools?: boolea
   }
 
   const k = Math.min(Math.max(config.k ?? panelDefaultK(), 1), maxK);
-  const ordered = getOrderedFusionChain().filter(c => !requirements.requireTools || c.supportsTools);
+  const ordered = getOrderedFusionChain(userId).filter(c => !requirements.requireTools || c.supportsTools);
 
   // Diversity-first ordering of the whole servable chain along provider AND
   // model family (see diversifyChain). The first K are the panel; the rest are
@@ -518,20 +518,21 @@ export interface FusionHooks {
 }
 
 export async function runFusion(params: {
+  userId: number;
   messages: ChatMessage[];
   config: FusionConfig;
   options: CompletionOptions;
   estimatedTokens: number;
   hooks?: FusionHooks;
 }): Promise<FusionResult> {
-  const { messages, options, estimatedTokens, hooks } = params;
+  const { userId, messages, options, estimatedTokens, hooks } = params;
   // Apply the dashboard-saved default; the request's inline fusion field (if
   // any) has already-merged precedence field-by-field.
   const config = resolveEffectiveConfig(params.config);
   const strategy = config.strategy ?? 'synthesize';
 
   const requireTools = (options.tools?.length ?? 0) > 0;
-  const { panel, overflow, dropped } = selectPanel(config, { requireTools });
+  const { panel, overflow, dropped } = selectPanel(userId, config, { requireTools });
   if (panel.length === 0) {
     throw new FusionError(
       'fusion: no usable models for the panel. Provide `fusion.models` with enabled model ids, or enable models in the Fallback Chain.',
@@ -545,7 +546,7 @@ export async function runFusion(params: {
   // settles so a streaming client sees answers arrive one by one.
   const runSlot = (cand: FusionCandidate): Promise<PanelAnswer> =>
     runModelCall(
-      (skipKeys) => routePinnedModel(cand.modelDbId, estimatedTokens, skipKeys),
+      (skipKeys) => routePinnedModel(userId, cand.modelDbId, estimatedTokens, skipKeys),
       messages, options, estimatedTokens, MAX_SLOT_ATTEMPTS,
     ).then((outcome): PanelAnswer => {
       const answer: PanelAnswer = outcome.ok
@@ -676,9 +677,9 @@ export async function runFusion(params: {
     const getJudgeRoute = config.judge
       ? (skipKeys: Set<string>) => {
           const cand = resolveFusionCandidate(config.judge!);
-          return cand ? routePinnedModel(cand.modelDbId, judgeEstimate, skipKeys) : null;
+          return cand ? routePinnedModel(userId, cand.modelDbId, judgeEstimate, skipKeys) : null;
         }
-      : (skipKeys: Set<string>, skipModels: Set<number>) => routeRequest(judgeEstimate, skipKeys.size ? skipKeys : undefined, undefined, false, false, skipModels.size ? skipModels : undefined);
+      : (skipKeys: Set<string>, skipModels: Set<number>) => routeRequest(userId, judgeEstimate, skipKeys.size ? skipKeys : undefined, undefined, false, false, skipModels.size ? skipModels : undefined);
 
     // Stream the judge when the caller wants live tokens (Playground); otherwise
     // a single buffered call (plain API clients hitting fusion non-streaming).

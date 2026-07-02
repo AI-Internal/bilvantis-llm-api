@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
@@ -69,7 +70,7 @@ describe('Model unification (group the same model across providers)', () => {
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
-    app = createApp();
+    ensureTestUser();    app = createApp();
     dashToken = mintDashboardToken();
   });
 
@@ -99,7 +100,7 @@ describe('Model unification (group the same model across providers)', () => {
     const ours = body.data.filter((m: any) => m.name === 'Test Unify Model');
     expect(ours).toHaveLength(1);
     expect(ours[0].id).toBe('test-unify-model');     // canonical slug
-    expect(ours[0].owned_by).toBe('freellmapi');
+    expect(ours[0].owned_by).toBe('bilvantisllmapi');
     // The raw per-provider ids are NOT advertised when unify is on.
     expect(body.data.some((m: any) => m.id === 'tum-groq' || m.id === 'tum-cerebras')).toBe(false);
   });
@@ -219,7 +220,7 @@ describe('Model unification (group the same model across providers)', () => {
     const ours = body.data.filter((m: any) => m.name === 'Test Unify Model');
     expect(ours).toHaveLength(1);
     expect(ours[0].id).toBe('test-unify-model');
-    expect(ours[0].owned_by).toBe('freellmapi');
+    expect(ours[0].owned_by).toBe('bilvantisllmapi');
     // The raw per-provider ids are never advertised anymore.
     expect(body.data.some((m: any) => m.id === 'tum-groq' || m.id === 'tum-cerebras')).toBe(false);
   });

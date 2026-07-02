@@ -4,12 +4,16 @@ import { getDb } from '../db/index.js';
 import { checkKeyHealth, checkAllKeys } from '../services/health.js';
 import { hasProvider } from '../providers/index.js';
 import { getQuotaStateForKeys } from '../services/provider-quota.js';
+import type { SessionUser } from '../services/auth.js';
 
 export const healthRouter = Router();
 
-// Get health status for all platforms
-healthRouter.get('/', (_req: Request, res: Response) => {
+const uid = (req: Request): number => (req as Request & { user?: SessionUser }).user!.userId;
+
+// Get health status for all platforms (scoped to the requesting user's keys)
+healthRouter.get('/', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = uid(req);
 
   const platforms = db.prepare(`
     SELECT
@@ -22,14 +26,16 @@ healthRouter.get('/', (_req: Request, res: Response) => {
       SUM(CASE WHEN status = 'unknown' THEN 1 ELSE 0 END) as unknown_keys,
       SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) as enabled_keys
     FROM api_keys
+    WHERE user_id = ?
     GROUP BY platform
-  `).all() as any[];
+  `).all(userId) as any[];
 
   const keys = db.prepare(`
     SELECT id, platform, label, status, enabled, created_at, last_checked_at
     FROM api_keys
+    WHERE user_id = ?
     ORDER BY platform, created_at DESC
-  `).all() as any[];
+  `).all(userId) as any[];
 
   res.json({
     platforms: platforms.map(p => ({
@@ -64,12 +70,19 @@ healthRouter.post('/check/:keyId', async (req: Request, res: Response) => {
     return;
   }
 
+  // Only let a user health-check a key they own.
+  const owns = getDb().prepare('SELECT 1 FROM api_keys WHERE id = ? AND user_id = ?').get(keyId, uid(req));
+  if (!owns) {
+    res.status(404).json({ error: { message: 'Key not found' } });
+    return;
+  }
+
   const status = await checkKeyHealth(keyId);
   res.json({ keyId, status });
 });
 
-// Check all keys
-healthRouter.post('/check-all', async (_req: Request, res: Response) => {
-  await checkAllKeys();
+// Check all of the requesting user's keys
+healthRouter.post('/check-all', async (req: Request, res: Response) => {
+  await checkAllKeys(uid(req));
   res.json({ success: true });
 });

@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
+let testUserId = 0;
 import { routeRequest, setRoutingStrategy } from '../../services/router.js';
 import * as ratelimit from '../../services/ratelimit.js';
 import { getDb, initDb } from '../../db/index.js';
@@ -45,7 +47,7 @@ describe('Routing Key Exhaustion', () => {
     process.env.DEV_MODE = 'true';
     process.env.NODE_ENV = 'test';
     initDb(':memory:');
-    // This suite asserts deterministic key/model fallback mechanics, which are
+    testUserId = ensureTestUser().userId;    // This suite asserts deterministic key/model fallback mechanics, which are
     // strategy-independent — pin the legacy priority order so the bandit's
     // score-based reordering (now the default) doesn't pick seeded catalog
     // models that share the 'google' platform.
@@ -97,7 +99,7 @@ describe('Routing Key Exhaustion', () => {
     (ratelimit.canUseTokens as any).mockReturnValue(true);
 
     // Act: Route request
-    const result = routeRequest(100);
+    const result = routeRequest(testUserId, 100);
 
     // Assert: It should have picked the Pro model despite Key B being exhausted
     expect(result.modelId).toBe('gemini-1.5-pro');
@@ -107,7 +109,7 @@ describe('Routing Key Exhaustion', () => {
 
   it('should throw 429 when every key on every model is exhausted', () => {
     (ratelimit.canMakeRequest as any).mockReturnValue(false);
-    expect(() => routeRequest(100)).toThrow(/All models exhausted/);
+    expect(() => routeRequest(testUserId, 100)).toThrow(/All models exhausted/);
   });
 
   it('should fall back to Flash when Pro is exhausted but Flash has quota', () => {
@@ -118,7 +120,7 @@ describe('Routing Key Exhaustion', () => {
     });
     (ratelimit.canUseTokens as any).mockReturnValue(true);
 
-    const result = routeRequest(100);
+    const result = routeRequest(testUserId, 100);
     expect(result.modelId).toBe('gemini-1.5-flash');
   });
 
@@ -134,7 +136,7 @@ describe('Routing Key Exhaustion', () => {
       (ratelimit.canMakeRequest as any).mockReturnValue(true);
       (ratelimit.canUseTokens as any).mockReturnValue(true);
 
-      const result = routeRequest(100, undefined, undefined, false, false, new Set([proId]));
+      const result = routeRequest(testUserId, 100, undefined, undefined, false, false, new Set([proId]));
       expect(result.modelId).toBe('gemini-1.5-flash');
     });
 
@@ -145,7 +147,7 @@ describe('Routing Key Exhaustion', () => {
       (ratelimit.canMakeRequest as any).mockReturnValue(true);
       (ratelimit.canUseTokens as any).mockReturnValue(true);
 
-      expect(() => routeRequest(100, undefined, undefined, false, false, new Set(ids))).toThrow();
+      expect(() => routeRequest(testUserId, 100, undefined, undefined, false, false, new Set(ids))).toThrow();
     });
 
     it('overrides a sticky/preferred model that has been skipped', () => {
@@ -156,7 +158,7 @@ describe('Routing Key Exhaustion', () => {
       (ratelimit.canUseTokens as any).mockReturnValue(true);
 
       // Sticky session prefers Pro, but Pro 404ed earlier in this request.
-      const result = routeRequest(100, undefined, proId, false, false, new Set([proId]));
+      const result = routeRequest(testUserId, 100, undefined, proId, false, false, new Set([proId]));
       expect(result.modelId).toBe('gemini-1.5-flash');
     });
   });

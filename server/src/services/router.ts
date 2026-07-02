@@ -10,7 +10,7 @@ import {
 import { parseBudget } from '../lib/budget.js';
 import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from './model-groups.js';
 import type { BaseProvider } from '../providers/base.js';
-import type { Platform } from '@freellmapi/shared/types.js';
+import type { Platform } from '@bilvantisllmapi/shared/types.js';
 import type { Database } from 'better-sqlite3';
 
 class RouteError extends Error {
@@ -550,7 +550,7 @@ export function resolveRoutingChain(modelString: string | undefined): ResolvedCh
  * context window) stay in the caller; this only does key selection + accounting
  * pre-checks.
  */
-function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: Set<string>, diag?: string[]): RouteResult | null {
+function selectKeyForModel(userId: number, entry: ChainRow, estimatedTokens: number, skipKeys?: Set<string>, diag?: string[]): RouteResult | null {
   const db = getDb();
   const label = `${entry.platform}/${entry.model_id}`;
 
@@ -560,9 +560,10 @@ function selectKeyForModel(entry: ChainRow, estimatedTokens: number, skipKeys?: 
   }
   const provider = getProvider(entry.platform as Platform)!;
 
+  // Multi-tenant: only ever consider the requesting user's OWN provider keys.
   const keys = db.prepare(
-    "SELECT * FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
-  ).all(entry.platform) as KeyRow[];
+    "SELECT * FROM api_keys WHERE user_id = ? AND platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
+  ).all(userId, entry.platform) as KeyRow[];
   if (keys.length === 0) {
     diag?.push(`${label}: no enabled+healthy key for platform`);
     return null;
@@ -659,13 +660,13 @@ function getModelChainRow(db: Database, modelDbId: number): ChainRow | undefined
  * silently collapsed onto whatever else is available. `skipKeys` lets a slot
  * exclude keys it already failed on this request.
  */
-export function routePinnedModel(modelDbId: number, estimatedTokens = 1000, skipKeys?: Set<string>): RouteResult | null {
+export function routePinnedModel(userId: number, modelDbId: number, estimatedTokens = 1000, skipKeys?: Set<string>): RouteResult | null {
   const db = getDb();
   const entry = getModelChainRow(db, modelDbId);
   if (!entry) return null;
   if (entry.context_window != null && estimatedTokens > entry.context_window) return null;
   if (entry.tpm_limit != null && estimatedTokens > entry.tpm_limit) return null;
-  return selectKeyForModel(entry, estimatedTokens, skipKeys);
+  return selectKeyForModel(userId, entry, estimatedTokens, skipKeys);
 }
 
 /**
@@ -725,7 +726,7 @@ export interface FusionCandidate {
  * so the panel's auto-pick draws from the highest-scored models first and the
  * fusion layer just needs to apply provider-diversity on top.
  */
-export function getOrderedFusionChain(): FusionCandidate[] {
+export function getOrderedFusionChain(userId: number): FusionCandidate[] {
   const db = getDb();
   const strategy = getRoutingStrategy();
   if (strategy !== 'priority') refreshStatsCache(db);
@@ -741,8 +742,8 @@ export function getOrderedFusionChain(): FusionCandidate[] {
   // can't fill — surfacing as "no available key" and pushing out a usable model,
   // which also makes the panel look like it's ignoring the routing strategy.
   const usableKeys = db.prepare(
-    "SELECT id, platform FROM api_keys WHERE enabled = 1 AND status IN ('healthy', 'unknown')"
-  ).all() as { id: number; platform: string }[];
+    "SELECT id, platform FROM api_keys WHERE user_id = ? AND enabled = 1 AND status IN ('healthy', 'unknown')"
+  ).all(userId) as { id: number; platform: string }[];
   const keysByPlatform = new Map<string, number[]>();
   for (const k of usableKeys) {
     const arr = keysByPlatform.get(k.platform);
@@ -829,7 +830,7 @@ export function resolveFusionCandidate(modelId: string): FusionCandidate | null 
   return null;
 }
 
-export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, preferredModelDbId?: number, requireVision = false, requireTools = false, skipModels?: Set<number>, prefetchedChain?: ChainRow[]): RouteResult {
+export function routeRequest(userId: number, estimatedTokens = 1000, skipKeys?: Set<string>, preferredModelDbId?: number, requireVision = false, requireTools = false, skipModels?: Set<number>, prefetchedChain?: ChainRow[]): RouteResult {
   const db = getDb();
 
   const strategy = getRoutingStrategy();
@@ -912,7 +913,7 @@ export function routeRequest(estimatedTokens = 1000, skipKeys?: Set<string>, pre
     // first usable key's RouteResult, or null when the model has no key that
     // can serve right now — in which case we fall through to the next model in
     // the sorted chain for THIS request (no explicit penalty needed).
-    const route = selectKeyForModel(entry, estimatedTokens, skipKeys, diag);
+    const route = selectKeyForModel(userId, entry, estimatedTokens, skipKeys, diag);
     if (route) return route;
   }
 

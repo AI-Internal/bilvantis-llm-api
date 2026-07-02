@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
+let testUserId = 0;
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
@@ -133,6 +135,7 @@ describe('fusion route (/v1/chat/completions, model: "fusion")', () => {
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
+    testUserId = ensureTestUser().userId;
     app = createApp();
     dashToken = mintDashboardToken();
     const db = getDb();
@@ -395,16 +398,16 @@ describe('fusion route (/v1/chat/completions, model: "fusion")', () => {
     try {
       // Priority mode: ordering is the manual chain order, and stable.
       setRoutingStrategy('priority');
-      const p1 = getOrderedFusionChain().map(c => c.modelId);
-      const p2 = getOrderedFusionChain().map(c => c.modelId);
+      const p1 = getOrderedFusionChain(testUserId).map(c => c.modelId);
+      const p2 = getOrderedFusionChain(testUserId).map(c => c.modelId);
       expect(p1.length).toBeGreaterThan(0);
       expect(p2).toEqual(p1);
 
       // Bandit mode: previously Thompson-sampled (random per call); now the
       // deterministic expected-score ranking, so two calls must be identical.
       setRoutingStrategy('smartest');
-      const s1 = getOrderedFusionChain().map(c => c.modelId);
-      const s2 = getOrderedFusionChain().map(c => c.modelId);
+      const s1 = getOrderedFusionChain(testUserId).map(c => c.modelId);
+      const s2 = getOrderedFusionChain(testUserId).map(c => c.modelId);
       expect(s2).toEqual(s1);
 
       // The strategy actually drives the ordering: 'smartest' (intelligence)
@@ -422,7 +425,7 @@ describe('fusion route (/v1/chat/completions, model: "fusion")', () => {
     const r = await request(app, 'POST', '/api/keys', { platform: 'groq', key: 'k_groq_only', label: 'only-groq' });
     expect(r.status).toBe(201);
 
-    const candidates = getOrderedFusionChain();
+    const candidates = getOrderedFusionChain(testUserId);
     expect(candidates.length).toBeGreaterThan(0);
     // Even though the seeded catalog has many higher-ranked models on other
     // platforms (cerebras, openrouter, opencode…), none are routable without a
@@ -436,13 +439,13 @@ describe('fusion route (/v1/chat/completions, model: "fusion")', () => {
     await request(app, 'POST', '/api/keys', { platform: 'groq', key: 'k_groq_cool', label: 'cool' });
     const keyId = (db.prepare("SELECT id FROM api_keys WHERE platform = 'groq'").get() as { id: number }).id;
 
-    const before = getOrderedFusionChain().filter(c => c.platform === 'groq');
+    const before = getOrderedFusionChain(testUserId).filter(c => c.platform === 'groq');
     expect(before.length).toBeGreaterThan(0);
     const target = before[0]; // the top groq model under the strategy
 
     // Bench that exact model+key (as a 402/429 cooldown would), then re-check.
     setCooldown('groq', target.modelId, keyId, 60_000);
-    const after = getOrderedFusionChain();
+    const after = getOrderedFusionChain(testUserId);
     expect(after.find(c => c.modelId === target.modelId)).toBeUndefined();
   });
 

@@ -15,9 +15,10 @@ import { mediaRouter } from './routes/media.js';
 import { analyticsRouter } from './routes/analytics.js';
 import { healthRouter } from './routes/health.js';
 import { settingsRouter } from './routes/settings.js';
-import { premiumRouter } from './routes/premium.js';
 import { authRouter } from './routes/auth.js';
+import { usersRouter } from './routes/users.js';
 import { requireAuth } from './middleware/requireAuth.js';
+import { requireAdmin } from './middleware/requireAdmin.js';
 import { createProxyRateLimiter } from './middleware/rateLimit.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import type { Config } from './lib/config.js';
@@ -71,7 +72,8 @@ export function createApp(config?: Config) {
   app.use('/api/analytics', requireAuth, analyticsRouter);
   app.use('/api/health', requireAuth, healthRouter);
   app.use('/api/settings', requireAuth, settingsRouter);
-  app.use('/api/premium', requireAuth, premiumRouter);
+  // Team management is admin-only.
+  app.use('/api/users', requireAuth, requireAdmin, usersRouter);
 
   // OpenAI-compatible proxy. Per-IP rate limiting (#35 item #6) runs first so
   // it throttles unauthenticated brute-force / flood attempts before any

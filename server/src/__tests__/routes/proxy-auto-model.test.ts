@@ -43,7 +43,7 @@ describe('Virtual "auto" model', () => {
   beforeEach(async () => {
     const db = getDb();
     // Unification is always on: /v1/models lists one entry per logical model
-    // (owned_by = freellmapi, id = canonical slug) that aggregates availability
+    // (owned_by = bilvantisllmapi, id = canonical slug) that aggregates availability
     // across its providers. This suite asserts the availability tagging (#242)
     // and context-window advertising (#282) under that unified shape.
     db.prepare('DELETE FROM api_keys').run();
@@ -68,7 +68,7 @@ describe('Virtual "auto" model', () => {
     expect(body.data[0]).toMatchObject({
       id: 'auto',
       object: 'model',
-      owned_by: 'freellmapi',
+      owned_by: 'bilvantisllmapi',
     });
     // Real catalog models still follow.
     expect(body.data.length).toBeGreaterThan(1);
@@ -104,10 +104,10 @@ describe('Virtual "auto" model', () => {
       if (m.available) expect(m.unavailable_reason).toBeNull();
       else expect(['no_key', 'disabled']).toContain(m.unavailable_reason);
     }
-    // Every logical model is owned_by freellmapi (unified). Only a groq key is
+    // Every logical model is owned_by bilvantisllmapi (unified). Only a groq key is
     // seeded, so at least one model is available (served by groq) and at least
     // one model with no provider key is listed but unavailable.
-    expect(models.every((m: any) => m.owned_by === 'freellmapi')).toBe(true);
+    expect(models.every((m: any) => m.owned_by === 'bilvantisllmapi')).toBe(true);
     expect(models.some((m: any) => m.available)).toBe(true);
     expect(models.some((m: any) => !m.available && m.unavailable_reason === 'no_key')).toBe(true);
   });

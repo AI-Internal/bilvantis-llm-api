@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { getUnifiedApiKey, regenerateUnifiedKey, getSetting, setSetting } from '../db/index.js';
+import { getSetting, setSetting } from '../db/index.js';
+import { getProxyKey, regenerateProxyKey, type SessionUser } from '../services/auth.js';
 import { applyProxyUrl, applyProxyEnabled, applyProxyBypass, isProxyActive, getProxyUrl, isProxyEnabled, getProxyBypassPlatforms } from '../lib/proxy.js';
 import { getSavedFusionConfig, setSavedFusionConfig, savedFusionConfigSchema, getFusionMaxK } from '../services/fusion.js';
 import { isUnifyEnabled, setUnifyEnabled, getUnifyOverrides, setUnifyOverrides, unifyOverridesSchema } from '../services/model-groups.js';
@@ -73,15 +74,16 @@ settingsRouter.put('/anthropic-map', (req: Request, res: Response) => {
   }
 });
 
-// Get the unified API key
-settingsRouter.get('/api-key', (_req: Request, res: Response) => {
-  res.json({ apiKey: getUnifiedApiKey() });
+// Get the logged-in user's own proxy API key (their /v1 credential).
+settingsRouter.get('/api-key', (req: Request, res: Response) => {
+  const user = (req as Request & { user?: SessionUser }).user!;
+  res.json({ apiKey: getProxyKey(user.userId) });
 });
 
-// Regenerate the unified API key
-settingsRouter.post('/api-key/regenerate', (_req: Request, res: Response) => {
-  const newKey = regenerateUnifiedKey();
-  res.json({ apiKey: newKey });
+// Regenerate the logged-in user's own proxy API key.
+settingsRouter.post('/api-key/regenerate', (req: Request, res: Response) => {
+  const user = (req as Request & { user?: SessionUser }).user!;
+  res.json({ apiKey: regenerateProxyKey(user.userId) });
 });
 
 // Get the proxy settings

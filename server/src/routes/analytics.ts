@@ -2,8 +2,17 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getDb } from '../db/index.js';
 import { FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M } from '../db/model-pricing.js';
+import type { SessionUser } from '../services/auth.js';
 
 export const analyticsRouter = Router();
+
+// Multi-tenant: every user sees ONLY their own usage. All analytics read the
+// raw `requests` table filtered by the session user's id. That table is capped
+// by REQUEST_ANALYTICS_MAX_ROWS / RETENTION_DAYS (defaults 100k rows / 90d), so
+// per-user history spans that window — ample for a team's operational view. The
+// install-wide `request_hourly` / lifetime-settings aggregates are intentionally
+// NOT used here (they are not per-user).
+const uid = (req: Request): number => (req as Request & { user?: SessionUser }).user!.userId;
 
 // Format UTC timestamps the same way SQLite stores created_at text values.
 const toSqliteDateTime = (timestamp: number) =>
@@ -24,71 +33,33 @@ function getSinceTimestamp(range: string): string {
   }
 }
 
-// Range-based window read from the durable `request_hourly` aggregate. The raw
-// `requests` table is pruned by REQUEST_ANALYTICS_MAX_ROWS, so any analytics
-// count that depends on a >=7d window must read from the hourly table to stay
-// accurate. Hourly resolution is fine for any UI range the dashboard exposes.
-function readAggregateSince(since: string) {
-  const db = getDb();
-  // Hour keys are created_at truncated to the hour, so they share SQLite's
-  // canonical 'YYYY-MM-DD HH:00:00' text (space separator). The range cutoff is
-  // already in that format — floor it to the hour and compare the strings
-  // directly. No separator conversion: the writer (logRequest) and the timeline
-  // reader both compare on the space form, so this must too.
-  const aggregateSince = since.slice(0, 13) + ':00:00';
-  const rows = db.prepare(`
-    SELECT
-      COALESCE(SUM(total_requests), 0) as total_requests,
-      COALESCE(SUM(success_count), 0) as success_count,
-      COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-      COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-      MIN(hour) as first_request_at
-    FROM request_hourly
-    WHERE hour >= ?
-  `).get(aggregateSince) as {
-    total_requests: number;
-    success_count: number;
-    total_input_tokens: number;
-    total_output_tokens: number;
-    first_request_at: string | null;
-  };
-  return rows;
-}
-
-function readLifetimeSettings() {
-  const db = getDb();
-  const row = db.prepare(`
-    SELECT value FROM settings WHERE key = 'first_request_at'
-  `).get() as { value: string } | undefined;
-  return row?.value ?? null;
-}
-
-// Summary stats
+// Summary stats (per-user)
 analyticsRouter.get('/summary', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
+  const userId = uid(req);
 
-  // Totals (request count, token sums, success rate, lifetime first_request_at)
-  // come from the durable `request_hourly` aggregate so they stay accurate even
-  // after the raw `requests` table is pruned. Per-model pin-honor rate and
-  // estimated savings still need the raw table because they're broken down by
-  // (platform, model_id); for those we fall back to the raw rows but they're
-  // only reported for ranges where recent activity still exists. The aggregate
-  // is the source of truth for headline numbers.
-  const aggregate = readAggregateSince(since);
-  const totalRequests = aggregate.total_requests ?? 0;
-  const successRate = totalRequests > 0 ? (aggregate.success_count / totalRequests) * 100 : 0;
+  const totals = db.prepare(`
+    SELECT
+      COUNT(*) as total_requests,
+      SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+      COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+      COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+      AVG(latency_ms) as avg_latency_ms,
+      SUM(CASE WHEN requested_model IS NOT NULL THEN 1 ELSE 0 END) as pinned_count,
+      SUM(CASE WHEN requested_model = model_id THEN 1 ELSE 0 END) as pin_honored_count
+    FROM requests
+    WHERE user_id = ? AND created_at >= ?
+  `).get(userId, since) as {
+    total_requests: number; success_count: number | null;
+    total_input_tokens: number; total_output_tokens: number;
+    avg_latency_ms: number | null; pinned_count: number | null; pin_honored_count: number | null;
+  };
 
-  // Avg latency is only meaningful at the raw row level; the hourly bucket
-  // doesn't preserve it. Fall back to a 0/null when no recent raw rows exist.
-  const latencyRow = db.prepare(`
-    SELECT AVG(latency_ms) as avg_latency_ms FROM requests WHERE created_at >= ?
-  `).get(since) as { avg_latency_ms: number | null } | undefined;
+  const totalRequests = totals.total_requests ?? 0;
+  const successRate = totalRequests > 0 ? ((totals.success_count ?? 0) / totalRequests) * 100 : 0;
 
-  // Estimated savings is a per-request priced value, so it lives on the raw
-  // rows. For ranges where the raw table is empty we report 0 (no recent
-  // activity to price).
   const savings = db.prepare(`
     SELECT COALESCE(SUM(
       CASE WHEN r.status = 'success' THEN
@@ -98,43 +69,30 @@ analyticsRouter.get('/summary', (req: Request, res: Response) => {
     ), 0) as est_savings
     FROM requests r
     LEFT JOIN models m ON m.platform = r.platform AND m.model_id = r.model_id
-    WHERE r.created_at >= ?
-  `).get(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, since) as { est_savings: number };
+    WHERE r.user_id = ? AND r.created_at >= ?
+  `).get(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, userId, since) as { est_savings: number };
 
-  // Pin-honor stats are also raw-row scoped. We still report them when present
-  // (typically 24h/7d) and gracefully drop them when the raw window is empty.
-  const pinRow = db.prepare(`
-    SELECT
-      SUM(CASE WHEN requested_model IS NOT NULL THEN 1 ELSE 0 END) as pinned_count,
-      SUM(CASE WHEN requested_model = model_id THEN 1 ELSE 0 END) as pin_honored_count
-    FROM requests WHERE created_at >= ?
-  `).get(since) as { pinned_count: number | null; pin_honored_count: number | null };
-
-  const lifetimeFirst = readLifetimeSettings();
+  // Lifetime (per-user, within retention): oldest row + total count for this user.
+  const lifetime = db.prepare(`
+    SELECT MIN(created_at) as first_request_at, COUNT(*) as total
+    FROM requests WHERE user_id = ?
+  `).get(userId) as { first_request_at: string | null; total: number };
 
   res.json({
     totalRequests,
     successRate: Math.round(successRate * 10) / 10,
-    totalInputTokens: aggregate.total_input_tokens ?? 0,
-    totalOutputTokens: aggregate.total_output_tokens ?? 0,
-    avgLatencyMs: Math.round(latencyRow?.avg_latency_ms ?? 0),
+    totalInputTokens: totals.total_input_tokens ?? 0,
+    totalOutputTokens: totals.total_output_tokens ?? 0,
+    avgLatencyMs: Math.round(totals.avg_latency_ms ?? 0),
     estimatedCostSavings: Math.round((savings.est_savings ?? 0) * 100) / 100,
-    // Pinned = requests where the client named a specific model (not 'auto').
-    // Honored = the pinned model actually served it; the difference is
-    // failovers that overrode the pin.
-    pinnedRequests: pinRow.pinned_count ?? 0,
-    pinHonoredRequests: pinRow.pin_honored_count ?? 0,
-    // First-ever request timestamp (lifetime, never pruned). Falls back to
-    // the oldest hour in the current window when lifetime is not yet seeded.
-    firstRequestAt: lifetimeFirst ?? aggregate.first_request_at ?? null,
-    // Lifetime total since install — useful when the user wants to see "all
-    // time" alongside the selected range window. Sourced from settings so it
-    // survives the raw-row prune entirely.
-    lifetimeTotalRequests: Number((db.prepare(`SELECT value FROM settings WHERE key='total_requests'`).get() as { value?: string } | undefined)?.value ?? 0) || 0,
+    pinnedRequests: totals.pinned_count ?? 0,
+    pinHonoredRequests: totals.pin_honored_count ?? 0,
+    firstRequestAt: lifetime.first_request_at ?? null,
+    lifetimeTotalRequests: lifetime.total ?? 0,
   });
 });
 
-// Stats grouped by model
+// Stats grouped by model (per-user)
 analyticsRouter.get('/by-model', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
@@ -157,10 +115,10 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
       ELSE 0 END) as est_cost
     FROM requests r
     LEFT JOIN models m ON m.platform = r.platform AND m.model_id = r.model_id
-    WHERE r.created_at >= ?
+    WHERE r.user_id = ? AND r.created_at >= ?
     GROUP BY r.platform, r.model_id
     ORDER BY requests DESC
-  `).all(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, since) as any[];
+  `).all(FALLBACK_INPUT_PER_M, FALLBACK_OUTPUT_PER_M, uid(req), since) as any[];
 
   res.json(rows.map(r => ({
     platform: r.platform,
@@ -171,13 +129,12 @@ analyticsRouter.get('/by-model', (req: Request, res: Response) => {
     avgLatencyMs: Math.round(r.avg_latency_ms),
     totalInputTokens: r.total_input_tokens ?? 0,
     totalOutputTokens: r.total_output_tokens ?? 0,
-    // Requests this model served because the client pinned it by name.
     pinnedRequests: r.pinned_requests ?? 0,
     estimatedCost: Math.round((r.est_cost ?? 0) * 100) / 100,
   })));
 });
 
-// Stats grouped by platform
+// Stats grouped by platform (per-user)
 analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
@@ -192,10 +149,10 @@ analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
       SUM(input_tokens) as total_input_tokens,
       SUM(output_tokens) as total_output_tokens
     FROM requests
-    WHERE created_at >= ?
+    WHERE user_id = ? AND created_at >= ?
     GROUP BY platform
     ORDER BY requests DESC
-  `).all(since) as any[];
+  `).all(uid(req), since) as any[];
 
   res.json(rows.map(r => ({
     platform: r.platform,
@@ -207,7 +164,7 @@ analyticsRouter.get('/by-platform', (req: Request, res: Response) => {
   })));
 });
 
-// Timeline data
+// Timeline data (per-user), bucketed from the raw rows.
 analyticsRouter.get('/timeline', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const interval = (req.query.interval as string) ?? (range === '24h' ? 'hour' : 'day');
@@ -217,20 +174,17 @@ analyticsRouter.get('/timeline', (req: Request, res: Response) => {
   // dateFormat is a hardcoded whitelist — never user-controlled.
   const dateFormat = interval === 'hour' ? '%Y-%m-%dT%H:00:00' : '%Y-%m-%d';
 
-  // Read from request_hourly (hour-bucketed) for both 'hour' and 'day'
-  // intervals. Day buckets are rolled up via strftime on the hour column,
-  // which keeps the timeline accurate past the raw-row prune window.
   const rows = db.prepare(`
     SELECT
-      strftime('${dateFormat}', hour) as timestamp,
-      SUM(total_requests) as requests,
-      SUM(success_count) as success_count,
-      SUM(error_count) as failure_count
-    FROM request_hourly
-    WHERE hour >= ?
-    GROUP BY strftime('${dateFormat}', hour)
+      strftime('${dateFormat}', created_at) as timestamp,
+      COUNT(*) as requests,
+      SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as failure_count
+    FROM requests
+    WHERE user_id = ? AND created_at >= ?
+    GROUP BY strftime('${dateFormat}', created_at)
     ORDER BY timestamp ASC
-  `).all(since) as any[];
+  `).all(uid(req), since) as any[];
 
   res.json(rows.map(r => ({
     timestamp: r.timestamp,
@@ -240,13 +194,13 @@ analyticsRouter.get('/timeline', (req: Request, res: Response) => {
   })));
 });
 
-// Error distribution (grouped by error type and platform)
+// Error distribution (per-user, grouped by error type and platform)
 analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
   const db = getDb();
+  const userId = uid(req);
 
-  // Group errors by category (extract the key part of the error message)
   const rows = db.prepare(`
     SELECT
       platform,
@@ -263,12 +217,11 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
       END as error_category,
       COUNT(*) as count
     FROM requests
-    WHERE status = 'error' AND created_at >= ?
+    WHERE status = 'error' AND user_id = ? AND created_at >= ?
     GROUP BY platform, error_category
     ORDER BY count DESC
-  `).all(since) as any[];
+  `).all(userId, since) as any[];
 
-  // Also get totals by category
   const byCategory = db.prepare(`
     SELECT
       CASE
@@ -283,19 +236,18 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
       END as category,
       COUNT(*) as count
     FROM requests
-    WHERE status = 'error' AND created_at >= ?
+    WHERE status = 'error' AND user_id = ? AND created_at >= ?
     GROUP BY category
     ORDER BY count DESC
-  `).all(since) as any[];
+  `).all(userId, since) as any[];
 
-  // Errors by platform
   const byPlatform = db.prepare(`
     SELECT platform, COUNT(*) as count
     FROM requests
-    WHERE status = 'error' AND created_at >= ?
+    WHERE status = 'error' AND user_id = ? AND created_at >= ?
     GROUP BY platform
     ORDER BY count DESC
-  `).all(since) as any[];
+  `).all(userId, since) as any[];
 
   res.json({
     byCategory,
@@ -304,7 +256,7 @@ analyticsRouter.get('/error-distribution', (req: Request, res: Response) => {
   });
 });
 
-// Recent errors
+// Recent errors (per-user)
 analyticsRouter.get('/errors', (req: Request, res: Response) => {
   const range = (req.query.range as string) ?? '7d';
   const since = getSinceTimestamp(range);
@@ -313,10 +265,10 @@ analyticsRouter.get('/errors', (req: Request, res: Response) => {
   const rows = db.prepare(`
     SELECT id, platform, model_id, error, latency_ms, created_at
     FROM requests
-    WHERE status = 'error' AND created_at >= ?
+    WHERE status = 'error' AND user_id = ? AND created_at >= ?
     ORDER BY created_at DESC
     LIMIT 50
-  `).all(since) as any[];
+  `).all(uid(req), since) as any[];
 
   res.json(rows.map(r => ({
     id: r.id,

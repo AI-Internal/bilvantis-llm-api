@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
+let testUserId = 0;
 import {
   routeRequest, refreshStatsCache, getRoutingStrategy, setRoutingStrategy, getRoutingScores,
   getCustomWeights, setCustomWeights,
@@ -65,7 +67,7 @@ function addHistory(platform: string, modelId: string, opts: {
 function pickCounts(runs: number): Record<string, number> {
   const counts: Record<string, number> = {};
   for (let i = 0; i < runs; i++) {
-    const r = routeRequest(100);
+    const r = routeRequest(testUserId, 100);
     counts[r.modelId] = (counts[r.modelId] ?? 0) + 1;
   }
   return counts;
@@ -76,7 +78,7 @@ describe('bandit router', () => {
     process.env.DEV_MODE = 'true';
     process.env.NODE_ENV = 'test';
     initDb(':memory:');
-    // initDb seeds the real catalog; wipe it so each test controls its own
+    testUserId = ensureTestUser().userId;    // initDb seeds the real catalog; wipe it so each test controls its own
     // models/keys/history (and seeded models don't share a platform with ours).
     getDb().exec('DELETE FROM fallback_config; DELETE FROM api_keys; DELETE FROM models; DELETE FROM requests;');
     vi.clearAllMocks();

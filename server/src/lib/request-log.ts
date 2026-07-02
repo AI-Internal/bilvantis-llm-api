@@ -57,10 +57,13 @@ export function logRequest(
   try {
     const db = getDb();
     const tx = db.transaction(() => {
+      // Multi-tenant: attribute the row to the key's owner. Deriving user_id
+      // from key_id here keeps all ~30 call sites unchanged while making
+      // per-user analytics exact (a served request always has a real key_id).
       const insert = db.prepare(`
-        INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, ttfb_ms, requested_model)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(platform, modelId, keyId, status, inputTokens, outputTokens, latencyMs, error, ttfbMs, requestedModel);
+        INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, ttfb_ms, requested_model, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT user_id FROM api_keys WHERE id = ?))
+      `).run(platform, modelId, keyId, status, inputTokens, outputTokens, latencyMs, error, ttfbMs, requestedModel, keyId);
 
       const createdAt = db.prepare(`SELECT created_at FROM requests WHERE id = ?`).get(insert.lastInsertRowid) as { created_at: string } | undefined;
       const hour = hourKey(createdAt?.created_at ?? new Date().toISOString().slice(0, 19).replace('T', ' '));

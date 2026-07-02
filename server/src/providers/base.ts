@@ -5,7 +5,7 @@ import type {
   ChatToolDefinition,
   ChatToolChoice,
   Platform,
-} from '@freellmapi/shared/types.js';
+} from '@bilvantisllmapi/shared/types.js';
 import type { QuotaObservationContext } from '../services/provider-quota.js';
 import { proxyFetch } from '../lib/proxy.js';
 

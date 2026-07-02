@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, NavLink, Link, useLocation, useNavigate } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query'
 import { Languages, Menu, MoreHorizontal, Moon, Sun } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import {
@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { AuthGate } from '@/components/auth-gate'
 import { I18nProvider, useI18n, SUPPORTED_LOCALES, type Locale } from '@/i18n'
-import { logout } from '@/lib/api'
+import { logout, apiFetch } from '@/lib/api'
 import KeysPage from '@/pages/KeysPage'
 import PlaygroundPage from '@/pages/PlaygroundPage'
 import FallbackPage from '@/pages/FallbackPage'
@@ -30,7 +30,7 @@ import AudioPage from '@/pages/AudioPage'
 import MediaDetailPage from '@/pages/MediaDetailPage'
 import EmbeddingDetailPage from '@/pages/EmbeddingDetailPage'
 import AnalyticsPage from '@/pages/AnalyticsPage'
-import PremiumPage from '@/pages/PremiumPage'
+import UsersPage from '@/pages/UsersPage'
 
 const queryClient = new QueryClient()
 
@@ -39,7 +39,6 @@ const navItems = [
   { to: '/playground', labelKey: 'nav.playground' },
   { to: '/keys', labelKey: 'nav.keys' },
   { to: '/analytics', labelKey: 'nav.analytics' },
-  { to: '/premium', labelKey: 'nav.premium' },
 ]
 
 function getPreferredDarkMode() {
@@ -90,7 +89,7 @@ function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2 transition-opacity hover:opacity-70">
       <span className="inline-block size-2 rounded-full bg-foreground" />
-      <span className="font-semibold tracking-tight text-sm">FreeLLMAPI</span>
+      <span className="font-semibold tracking-tight text-sm">BilvantisLLM-API</span>
     </Link>
   )
 }
@@ -98,7 +97,7 @@ function Brand() {
 // True when the dashboard runs inside the desktop shell (Electron preload
 // sets this). The navbar then doubles as the window title bar: draggable,
 // padded for the macOS traffic lights, and without the web-only Sign out.
-const isDesktopApp = typeof window !== 'undefined' && (window as any).__FREEAPI_DESKTOP__ === true
+const isDesktopApp = typeof window !== 'undefined' && (window as any).__BILVANTIS_DESKTOP__ === true
 
 // The preload's own early classList.add can be lost (it may run before this
 // document exists), so the client claims the class itself at module load —
@@ -138,6 +137,16 @@ function Navbar() {
   const location = useLocation()
   const navigate = useNavigate()
 
+  // Reads the shared auth-status cache (populated by AuthGate) to show the
+  // admin-only "Team" nav item.
+  const { data: auth } = useQuery<{ role: string | null }>({
+    queryKey: ['auth-status'],
+    queryFn: () => apiFetch('/api/auth/status'),
+  })
+  const items = auth?.role === 'admin'
+    ? [...navItems, { to: '/users', labelKey: 'nav.team' }]
+    : navItems
+
   function isActiveRoute(to: string) {
     return location.pathname === to
   }
@@ -158,7 +167,7 @@ function Navbar() {
           className="ml-10 hidden items-center gap-6 md:flex"
           style={isDesktopApp ? ({ WebkitAppRegion: 'no-drag' } as React.CSSProperties) : undefined}
         >
-          {navItems.map((item) => (
+          {items.map((item) => (
             <NavItem key={item.to} to={item.to}>
               {t(item.labelKey)}
             </NavItem>
@@ -200,7 +209,7 @@ function Navbar() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
               <DropdownMenuGroup>
-                {navItems.map((item) => (
+                {items.map((item) => (
                   <DropdownMenuItem
                     key={item.to}
                     onClick={() => navigate(item.to)}
@@ -254,7 +263,7 @@ function App() {
                 <Route path="/keys" element={<KeysPage />} />
                 <Route path="/fallback" element={<Navigate to="/models/chat" replace />} />
                 <Route path="/analytics" element={<AnalyticsPage />} />
-                <Route path="/premium" element={<PremiumPage />} />
+                <Route path="/users" element={<UsersPage />} />
                 <Route path="/test" element={<Navigate to="/playground" replace />} />
                 <Route path="/health" element={<Navigate to="/keys" replace />} />
               </Routes>

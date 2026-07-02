@@ -1,5 +1,5 @@
 {
-  "name": "freellmapi",
+  "name": "bilvantisllmapi",
   "private": true,
   "workspaces": [
     "shared",

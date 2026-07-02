@@ -58,6 +58,7 @@ authRouter.get('/status', (req: Request, res: Response) => {
     needsSetup: userCount() === 0,
     authenticated: !!session,
     email: session?.email ?? null,
+    role: session?.role ?? null,
   });
 });
 
@@ -75,7 +76,7 @@ authRouter.post('/setup', (req: Request, res: Response) => {
   }
   const user = createUser(parsed.data.email, parsed.data.password);
   const token = createSession(user.userId);
-  res.status(201).json({ token, email: user.email });
+  res.status(201).json({ token, email: user.email, role: user.role });
 });
 
 authRouter.post('/login', (req: Request, res: Response) => {
@@ -101,7 +102,7 @@ authRouter.post('/login', (req: Request, res: Response) => {
 
   clearFailures(email);
   const token = createSession(user.userId);
-  res.json({ token, email: user.email });
+  res.json({ token, email: user.email, role: user.role });
 });
 
 authRouter.post('/logout', (req: Request, res: Response) => {
@@ -115,5 +116,5 @@ authRouter.get('/me', (req: Request, res: Response) => {
     res.status(401).json({ error: { message: 'Authentication required', type: 'authentication_error' } });
     return;
   }
-  res.json({ email: session.email });
+  res.json({ email: session.email, role: session.role });
 });

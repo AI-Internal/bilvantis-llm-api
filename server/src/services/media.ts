@@ -5,8 +5,8 @@
 // (a chat request can't misroute to an image model) and never pollute the chat
 // token budget. Each platform has a small adapter here; routing fails over
 // across the providers serving the same modality. The rows are maintained in the
-// published catalog and arrive via catalog-sync (premium on the live tier within
-// ~12h, free at the monthly promote) — never seeded by migrations.
+// published catalog and arrive via catalog-sync (the twice-daily signed
+// snapshot) — never seeded by migrations.
 import { getDb } from '../db/index.js';
 import { decrypt } from '../lib/crypto.js';
 import { proxyFetch } from '../lib/proxy.js';
@@ -76,11 +76,11 @@ interface ProviderCredential {
   baseUrl: string | null;
 }
 
-function getProviderCredential(row: MediaModelRow): ProviderCredential | null {
+function getProviderCredential(userId: number, row: MediaModelRow): ProviderCredential | null {
   if (row.key_id != null) {
     const keyRow = getDb()
-      .prepare("SELECT id, encrypted_key, iv, auth_tag, base_url FROM api_keys WHERE id = ? AND enabled = 1 AND status IN ('healthy', 'unknown') LIMIT 1")
-      .get(row.key_id) as { id: number; encrypted_key: string; iv: string; auth_tag: string; base_url: string | null } | undefined;
+      .prepare("SELECT id, encrypted_key, iv, auth_tag, base_url FROM api_keys WHERE id = ? AND user_id = ? AND enabled = 1 AND status IN ('healthy', 'unknown') LIMIT 1")
+      .get(row.key_id, userId) as { id: number; encrypted_key: string; iv: string; auth_tag: string; base_url: string | null } | undefined;
     if (!keyRow) return null;
     try {
       return {
@@ -95,8 +95,8 @@ function getProviderCredential(row: MediaModelRow): ProviderCredential | null {
   if (row.platform === 'custom') return null;
 
   const keyRow = getDb()
-    .prepare("SELECT id, encrypted_key, iv, auth_tag, base_url FROM api_keys WHERE platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown') ORDER BY id LIMIT 1")
-    .get(row.platform) as { id: number; encrypted_key: string; iv: string; auth_tag: string; base_url: string | null } | undefined;
+    .prepare("SELECT id, encrypted_key, iv, auth_tag, base_url FROM api_keys WHERE user_id = ? AND platform = ? AND enabled = 1 AND status IN ('healthy', 'unknown') ORDER BY id LIMIT 1")
+    .get(userId, row.platform) as { id: number; encrypted_key: string; iv: string; auth_tag: string; base_url: string | null } | undefined;
   if (!keyRow) return null;
   try {
     return {
@@ -356,12 +356,12 @@ function resolveMediaChain(model: string | undefined, modality: MediaModality): 
   return matches;
 }
 
-function logMedia(row: MediaModelRow, keyId: number | null, status: 'success' | 'error', latencyMs: number, error: string | null): void {
+function logMedia(userId: number, row: MediaModelRow, keyId: number | null, status: 'success' | 'error', latencyMs: number, error: string | null): void {
   try {
     getDb()
-      .prepare(`INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type)
-                VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?)`)
-      .run(row.platform, row.model_id, keyId, status, latencyMs, error, row.modality);
+      .prepare(`INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, user_id)
+                VALUES (?, ?, ?, ?, 0, 0, ?, ?, ?, ?)`)
+      .run(row.platform, row.model_id, keyId, status, latencyMs, error, row.modality, userId);
   } catch (e) {
     console.error('Failed to log media request:', e);
   }
@@ -375,13 +375,13 @@ function chainError(modality: MediaModality, lastError: MediaError | null): Medi
 }
 
 /** Generate image(s), failing over across providers serving the modality. */
-export async function runImageGeneration(model: string | undefined, params: ImageParams): Promise<ImageResult> {
+export async function runImageGeneration(userId: number, model: string | undefined, params: ImageParams): Promise<ImageResult> {
   const chain = resolveMediaChain(model, 'image');
   let lastError: MediaError | null = null;
   for (const row of chain) {
     const credential = KEYLESS_CAPABLE.has(row.platform)
       ? { id: null, key: null, baseUrl: null }
-      : getProviderCredential(row);
+      : getProviderCredential(userId, row);
     if (!credential) continue; // no usable key for this provider — try the next
     const started = Date.now();
     try {
@@ -389,11 +389,11 @@ export async function runImageGeneration(model: string | undefined, params: Imag
       if (!images.length || images.every(i => !i.b64_json && !i.url)) {
         throw new MediaError('upstream returned no image', 502);
       }
-      logMedia(row, credential.id, 'success', Date.now() - started, null);
+      logMedia(userId, row, credential.id, 'success', Date.now() - started, null);
       return { platform: row.platform, modelId: row.model_id, images };
     } catch (err: any) {
       const e = err instanceof MediaError ? err : new MediaError(String(err?.message ?? err), 502);
-      logMedia(row, credential.id, 'error', Date.now() - started, e.message.slice(0, 300));
+      logMedia(userId, row, credential.id, 'error', Date.now() - started, e.message.slice(0, 300));
       lastError = e;
     }
   }
@@ -401,23 +401,23 @@ export async function runImageGeneration(model: string | undefined, params: Imag
 }
 
 /** Synthesize speech, failing over across providers serving the modality. */
-export async function runSpeech(model: string | undefined, params: SpeechParams): Promise<SpeechResult> {
+export async function runSpeech(userId: number, model: string | undefined, params: SpeechParams): Promise<SpeechResult> {
   const chain = resolveMediaChain(model, 'audio');
   let lastError: MediaError | null = null;
   for (const row of chain) {
     const credential = KEYLESS_CAPABLE.has(row.platform)
       ? { id: null, key: null, baseUrl: null }
-      : getProviderCredential(row);
+      : getProviderCredential(userId, row);
     if (!credential) continue;
     const started = Date.now();
     try {
       const out = await callSpeechProvider(row, credential, params);
       if (!out.audio.length) throw new MediaError('upstream returned no audio', 502);
-      logMedia(row, credential.id, 'success', Date.now() - started, null);
+      logMedia(userId, row, credential.id, 'success', Date.now() - started, null);
       return { platform: row.platform, modelId: row.model_id, audio: out.audio, contentType: out.contentType };
     } catch (err: any) {
       const e = err instanceof MediaError ? err : new MediaError(String(err?.message ?? err), 502);
-      logMedia(row, credential.id, 'error', Date.now() - started, e.message.slice(0, 300));
+      logMedia(userId, row, credential.id, 'error', Date.now() - started, e.message.slice(0, 300));
       lastError = e;
     }
   }

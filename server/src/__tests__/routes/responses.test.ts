@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
 
 // Mock only routeRequest so we don't need real provider keys; keep the rest of
 // the router module (recordSuccess / recordRateLimitHit) intact.
@@ -36,7 +37,7 @@ describe('POST /v1/responses (#96)', () => {
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
-    app = createApp();
+    ensureTestUser();    app = createApp();
     key = getUnifiedApiKey();
   });
 
@@ -169,7 +170,8 @@ describe('POST /v1/responses (#96)', () => {
 
     expect(status).toBe(200);
     const lastCall = mockRouteRequest.mock.calls.at(-1);
-    expect(lastCall?.[4]).toBe(true);
+    // routeRequest(userId, estimated, skipKeys, preferredModelDbId, requireVision, requireTools, …)
+    expect(lastCall?.[5]).toBe(true);
   });
 
   it('non-stream: returns invalid_request_error when provider API 400s exhaust routing', async () => {

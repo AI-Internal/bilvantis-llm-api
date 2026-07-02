@@ -8,10 +8,9 @@ import type {
   ChatToolDefinition,
   ChatToolChoice,
   Platform,
-} from '@freellmapi/shared/types.js';
+} from '@bilvantisllmapi/shared/types.js';
 import { routeRequest, recordRateLimitHit, recordSuccess, hasEnabledToolsModel, type RouteResult } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, learnLimitFromError } from '../services/ratelimit.js';
-import { getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { rescueInlineToolCalls, startsWithDialectMarker, couldBecomeDialectMarker, containsDialectMarker } from '../lib/tool-call-rescue.js';
@@ -20,8 +19,7 @@ import {
   isPaymentRequiredError,
   isModelNotFoundError,
   isModelAccessForbiddenError,
-  timingSafeStringEqual,
-  extractApiToken,
+  authenticateProxy,
   getRequestGroupId,
   getStickyModel,
   setStickyModel,
@@ -287,10 +285,9 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   const requestGroupId = getRequestGroupId(req);
   res.setHeader('X-Request-ID', requestGroupId);
 
-  // Same unified-key auth as the proxy (accepts Bearer or x-api-key).
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+  // Same per-user proxy-key auth as the proxy (accepts Bearer or x-api-key).
+  const proxyUserId = authenticateProxy(req);
+  if (proxyUserId === null) {
     res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
     return;
   }
@@ -381,7 +378,7 @@ responsesRouter.post('/responses', async (req: Request, res: Response) => {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
     try {
-      route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, false, wantsTools, skipModels.size > 0 ? skipModels : undefined);
+      route = routeRequest(proxyUserId, estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, false, wantsTools, skipModels.size > 0 ? skipModels : undefined);
     } catch (err: any) {
       const exhausted = lastError ? exhaustedRetryError(lastError) : null;
       const status = exhausted?.status ?? err.status ?? 503;

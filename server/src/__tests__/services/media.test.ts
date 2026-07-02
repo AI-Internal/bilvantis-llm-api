@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
+let testUserId = 0;
 import { initDb, getDb } from '../../db/index.js';
 import { encrypt } from '../../lib/crypto.js';
 import { runImageGeneration, runSpeech, MediaError } from '../../services/media.js';
@@ -37,7 +39,7 @@ describe('media service', () => {
   beforeEach(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
-  });
+    testUserId = ensureTestUser().userId;  });
 
   afterEach(() => {
     globalThis.fetch = realFetch;
@@ -56,7 +58,7 @@ describe('media service', () => {
       addMedia('nvidia', 'black-forest-labs/flux.1-schnell', 'image');
       addKey('nvidia');
       globalThis.fetch = vi.fn(async () => jsonResponse({ artifacts: [{ base64: 'AAAA' }] })) as any;
-      const r = await runImageGeneration('black-forest-labs/flux.1-schnell', { prompt: 'a cat' });
+      const r = await runImageGeneration(testUserId, 'black-forest-labs/flux.1-schnell', { prompt: 'a cat' });
       expect(r.platform).toBe('nvidia');
       expect(r.images[0].b64_json).toBe('AAAA');
     });
@@ -65,7 +67,7 @@ describe('media service', () => {
       addMedia('pollinations', 'flux', 'image');
       globalThis.fetch = vi.fn(async () =>
         new Response(Buffer.from('PNGDATA'), { status: 200, headers: { 'content-type': 'image/jpeg' } })) as any;
-      const r = await runImageGeneration('flux', { prompt: 'a cat' });
+      const r = await runImageGeneration(testUserId, 'flux', { prompt: 'a cat' });
       expect(r.platform).toBe('pollinations');
       expect(r.images[0].b64_json).toBe(Buffer.from('PNGDATA').toString('base64'));
     });
@@ -74,7 +76,7 @@ describe('media service', () => {
       addMedia('cloudflare', '@cf/black-forest-labs/flux-1-schnell', 'image');
       addKey('cloudflare', 'acct123:token456');
       globalThis.fetch = vi.fn(async () => jsonResponse({ result: { image: 'CFB64' }, success: true })) as any;
-      const r = await runImageGeneration('@cf/black-forest-labs/flux-1-schnell', { prompt: 'x' });
+      const r = await runImageGeneration(testUserId, '@cf/black-forest-labs/flux-1-schnell', { prompt: 'x' });
       expect(r.images[0].b64_json).toBe('CFB64');
     });
 
@@ -83,7 +85,7 @@ describe('media service', () => {
       addKey('cloudflare', 'acct123:token456');
       globalThis.fetch = vi.fn(async () =>
         new Response(Buffer.from('SDXLPNG'), { status: 200, headers: { 'content-type': 'image/png' } })) as any;
-      const r = await runImageGeneration('@cf/stabilityai/stable-diffusion-xl-base-1.0', { prompt: 'x' });
+      const r = await runImageGeneration(testUserId, '@cf/stabilityai/stable-diffusion-xl-base-1.0', { prompt: 'x' });
       expect(r.images[0].b64_json).toBe(Buffer.from('SDXLPNG').toString('base64'));
     });
 
@@ -91,18 +93,18 @@ describe('media service', () => {
       addMedia('siliconflow', 'black-forest-labs/FLUX.1-schnell', 'image');
       addKey('siliconflow');
       globalThis.fetch = vi.fn(async () => jsonResponse({ images: [{ url: 'https://x/y.png' }] })) as any;
-      const r = await runImageGeneration('black-forest-labs/FLUX.1-schnell', { prompt: 'x' });
+      const r = await runImageGeneration(testUserId, 'black-forest-labs/FLUX.1-schnell', { prompt: 'x' });
       expect(r.images[0].url).toBe('https://x/y.png');
     });
 
     it('unknown model id → 400', async () => {
       addMedia('nvidia', 'real-model', 'image');
       addKey('nvidia');
-      await expect(runImageGeneration('does-not-exist', { prompt: 'x' })).rejects.toMatchObject({ status: 400 });
+      await expect(runImageGeneration(testUserId, 'does-not-exist', { prompt: 'x' })).rejects.toMatchObject({ status: 400 });
     });
 
     it('no providers configured → 503', async () => {
-      await expect(runImageGeneration('auto', { prompt: 'x' })).rejects.toMatchObject({ status: 503 });
+      await expect(runImageGeneration(testUserId, 'auto', { prompt: 'x' })).rejects.toMatchObject({ status: 503 });
     });
 
     it('fails over to the next provider on error (auto)', async () => {
@@ -114,7 +116,7 @@ describe('media service', () => {
         if (String(url).includes('nvidia')) return new Response('upstream boom', { status: 500 });
         return jsonResponse({ images: [{ url: 'ok' }] });
       }) as any;
-      const r = await runImageGeneration('auto', { prompt: 'x' });
+      const r = await runImageGeneration(testUserId, 'auto', { prompt: 'x' });
       expect(r.platform).toBe('siliconflow');
       expect(r.images[0].url).toBe('ok');
     });
@@ -124,7 +126,7 @@ describe('media service', () => {
       addMedia('siliconflow', 'flux-s', 'image', 2);
       addKey('siliconflow');
       globalThis.fetch = vi.fn(async () => jsonResponse({ images: [{ url: 'ok' }] })) as any;
-      const r = await runImageGeneration('auto', { prompt: 'x' });
+      const r = await runImageGeneration(testUserId, 'auto', { prompt: 'x' });
       expect(r.platform).toBe('siliconflow');
     });
 
@@ -134,7 +136,7 @@ describe('media service', () => {
       const fetchMock = vi.fn(async () => jsonResponse({ data: [{ url: 'https://example.test/image.png' }] }));
       globalThis.fetch = fetchMock as any;
 
-      const r = await runImageGeneration('local-image', { prompt: 'a cat', n: 2, size: '512x512' });
+      const r = await runImageGeneration(testUserId, 'local-image', { prompt: 'a cat', n: 2, size: '512x512' });
 
       expect(r.platform).toBe('custom');
       expect(r.images[0].url).toBe('https://example.test/image.png');
@@ -154,7 +156,7 @@ describe('media service', () => {
       addMedia('cloudflare', '@cf/myshell-ai/melotts', 'audio');
       addKey('cloudflare', 'acct:tok');
       globalThis.fetch = vi.fn(async () => jsonResponse({ result: { audio: Buffer.from('MP3').toString('base64') } })) as any;
-      const r = await runSpeech('@cf/myshell-ai/melotts', { input: 'hi' });
+      const r = await runSpeech(testUserId, '@cf/myshell-ai/melotts', { input: 'hi' });
       expect(r.contentType).toBe('audio/mpeg');
       expect(r.audio.toString()).toBe('MP3');
     });
@@ -164,7 +166,7 @@ describe('media service', () => {
       addKey('siliconflow');
       globalThis.fetch = vi.fn(async () =>
         new Response(Buffer.from('COSY'), { status: 200, headers: { 'content-type': 'audio/mpeg' } })) as any;
-      const r = await runSpeech('FunAudioLLM/CosyVoice2-0.5B', { input: 'hi' });
+      const r = await runSpeech(testUserId, 'FunAudioLLM/CosyVoice2-0.5B', { input: 'hi' });
       expect(r.contentType).toBe('audio/mpeg');
       expect(r.audio.toString()).toBe('COSY');
     });
@@ -173,7 +175,7 @@ describe('media service', () => {
       addMedia('pollinations', 'openai-audio', 'audio');
       globalThis.fetch = vi.fn(async () =>
         jsonResponse({ choices: [{ message: { audio: { data: Buffer.from('POLLY').toString('base64') } } }] })) as any;
-      const r = await runSpeech('openai-audio', { input: 'hi' });
+      const r = await runSpeech(testUserId, 'openai-audio', { input: 'hi' });
       expect(r.audio.toString()).toBe('POLLY');
     });
 
@@ -184,7 +186,7 @@ describe('media service', () => {
       globalThis.fetch = vi.fn(async () => jsonResponse({
         candidates: [{ content: { parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: pcm.toString('base64') } }] } }],
       })) as any;
-      const r = await runSpeech('gemini-2.5-flash-preview-tts', { input: 'hi' });
+      const r = await runSpeech(testUserId, 'gemini-2.5-flash-preview-tts', { input: 'hi' });
       expect(r.contentType).toBe('audio/wav');
       expect(r.audio.subarray(0, 4).toString()).toBe('RIFF');
       expect(r.audio.subarray(8, 12).toString()).toBe('WAVE');
@@ -199,7 +201,7 @@ describe('media service', () => {
         new Response(Buffer.from('MP3'), { status: 200, headers: { 'content-type': 'audio/mpeg' } })) as any;
       globalThis.fetch = fetchMock as any;
 
-      const r = await runSpeech('local-tts', { input: 'hi', voice: 'alloy', format: 'mp3' });
+      const r = await runSpeech(testUserId, 'local-tts', { input: 'hi', voice: 'alloy', format: 'mp3' });
 
       expect(r.platform).toBe('custom');
       expect(r.audio.toString()).toBe('MP3');

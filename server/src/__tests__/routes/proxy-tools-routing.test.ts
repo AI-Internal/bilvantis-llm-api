@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
+let testUserId = 0;
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getDb, getUnifiedApiKey } from '../../db/index.js';
@@ -61,6 +63,7 @@ describe('Tools-aware routing', () => {
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
+    testUserId = ensureTestUser().userId;
     app = createApp();
     key = getUnifiedApiKey();
   });
@@ -108,11 +111,11 @@ describe('Tools-aware routing', () => {
     db.prepare('UPDATE fallback_config SET priority = 0, enabled = 1 WHERE model_db_id = ?').run(gemma!.id);
 
     // Plain request takes the chain head: gemma.
-    const plain = routeRequest(1000);
+    const plain = routeRequest(testUserId, 1000);
     expect(plain.modelId.toLowerCase()).toContain('gemma');
 
     // Tool-bearing request must skip past gemma to a tool-capable model.
-    const tooled = routeRequest(1000, undefined, undefined, false, true);
+    const tooled = routeRequest(testUserId, 1000, undefined, undefined, false, true);
     expect(tooled.modelId.toLowerCase()).not.toContain('gemma');
     const flag = db.prepare('SELECT supports_tools FROM models WHERE id = ?').get(tooled.modelDbId) as { supports_tools: number };
     expect(flag.supports_tools).toBe(1);

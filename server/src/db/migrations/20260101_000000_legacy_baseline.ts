@@ -32,13 +32,12 @@ export function up(db: Database.Database): void {
   migrateModelsV23FreeTierAudit(db);
   migrateModelsV24ZenRefresh(db);
   migrateModelsV25ZenDeadPromos(db);
-  // V25 is the LAST model-data migration. Since the Premium live catalog
-  // shipped (June 2026), model/limit DATA is maintained in the published
-  // catalog (served signed by the catalog service) and reaches installs via
-  // catalog-sync — premium on the live tier within ~12h, free at the monthly
-  // promote. Shipping model data as a
-  // migration would hand it to free users on their next binary update,
-  // bypassing the tier gate. Migrations from here on are baseline/code-level
+  // V25 is the LAST model-data migration. Since the signed catalog shipped
+  // (June 2026), model/limit DATA is maintained in the published catalog
+  // (served signed by the catalog service) and reaches installs via
+  // catalog-sync as the twice-daily snapshot. Shipping model data as a
+  // migration would freeze it at each binary release instead of tracking the
+  // catalog. Migrations from here on are baseline/code-level
   // only (schema, family rules, provider plumbing, quirk-seed corrections).
   // After all model migrations: add/refresh paid-equivalent pricing
   // (drives the realistic "Est. savings" analytics stat).
@@ -1950,7 +1949,7 @@ function migrateModelsV25ZenDeadPromos(db: Database.Database) {
 // 5 RPM/30K TPM/1M TPD limits, NVIDIA "free · 40 RPM" labels, LLM7 60-100/hr
 // label) were briefly shipped as a data migration and then MOVED to the
 // published catalog — catalog data is distributed via catalog-sync, never
-// via migrations, so the premium tier gate holds. What remains in code from that audit: the 'ovh'
+// via migrations, so the catalog stays authoritative. What remains in code from that audit: the 'ovh'
 // keyless provider, Pollinations keyless, the V22 north-mini-code tools rule,
 // and the corrected quirk seeds in migrateQuirksV1 (incl. the
 // 'nvidia-credits-based' → 'nvidia-rate-limited' replacement; the stale slug
@@ -2024,7 +2023,7 @@ function migrateEmbeddingsV1(db: Database.Database) {
  * misroute to an image model) and never pollute the chat token budget. This is
  * schema only: per the no-model-data-in-migrations rule (see migrateDbSchema),
  * the rows are maintained in the published catalog and arrive via catalog-sync
- * (premium on the live tier within ~12h, free at the monthly promote). `modality`
+ * (the twice-daily signed snapshot). `modality`
  * is 'image' | 'audio'; `quota_label` mirrors the catalog's display note. The
  * request_type column (added by migrateEmbeddingsV1) tags media traffic 'image'
  * / 'audio' so it stays out of the chat budget math.
@@ -2238,7 +2237,7 @@ function backfillFallback(db: Database.Database) {
 function ensureUnifiedKey(db: Database.Database) {
   const existing = db.prepare("SELECT value FROM settings WHERE key = 'unified_api_key'").get() as { value: string } | undefined;
   if (!existing) {
-    const key = `freellmapi-${crypto.randomBytes(24).toString('hex')}`;
+    const key = `bilvantisllmapi-${crypto.randomBytes(24).toString('hex')}`;
     db.prepare("INSERT INTO settings (key, value) VALUES ('unified_api_key', ?)").run(key);
     console.log(`\n  Your unified API key: ${key}\n`);
   }

@@ -3,14 +3,14 @@ import { initDb, getDb } from '../../db/index.js';
 import { applyDeclarativeConfig, applyDeclarativeConfigFromEnv } from '../../services/declarative-config.js';
 import { getRoutingStrategy } from '../../services/router.js';
 
-const ORIGINAL_CONFIG_JSON = process.env.FREEAPI_CONFIG_JSON;
-const ORIGINAL_CONFIG_PATH = process.env.FREEAPI_CONFIG_PATH;
+const ORIGINAL_CONFIG_JSON = process.env.BILVANTIS_CONFIG_JSON;
+const ORIGINAL_CONFIG_PATH = process.env.BILVANTIS_CONFIG_PATH;
 
 function restoreEnv() {
-  if (ORIGINAL_CONFIG_JSON === undefined) delete process.env.FREEAPI_CONFIG_JSON;
-  else process.env.FREEAPI_CONFIG_JSON = ORIGINAL_CONFIG_JSON;
-  if (ORIGINAL_CONFIG_PATH === undefined) delete process.env.FREEAPI_CONFIG_PATH;
-  else process.env.FREEAPI_CONFIG_PATH = ORIGINAL_CONFIG_PATH;
+  if (ORIGINAL_CONFIG_JSON === undefined) delete process.env.BILVANTIS_CONFIG_JSON;
+  else process.env.BILVANTIS_CONFIG_JSON = ORIGINAL_CONFIG_JSON;
+  if (ORIGINAL_CONFIG_PATH === undefined) delete process.env.BILVANTIS_CONFIG_PATH;
+  else process.env.BILVANTIS_CONFIG_PATH = ORIGINAL_CONFIG_PATH;
 }
 
 describe('declarative config import', () => {
@@ -20,8 +20,8 @@ describe('declarative config import', () => {
   });
 
   beforeEach(() => {
-    delete process.env.FREEAPI_CONFIG_JSON;
-    delete process.env.FREEAPI_CONFIG_PATH;
+    delete process.env.BILVANTIS_CONFIG_JSON;
+    delete process.env.BILVANTIS_CONFIG_PATH;
     getDb().prepare('DELETE FROM api_keys').run();
   });
 
@@ -95,8 +95,8 @@ describe('declarative config import', () => {
     `).get(target.platform, target.model_id) as { fallback_enabled: number }).fallback_enabled).toBe(0);
   });
 
-  it('applies inline JSON from FREEAPI_CONFIG_JSON idempotently', () => {
-    process.env.FREEAPI_CONFIG_JSON = JSON.stringify({
+  it('applies inline JSON from BILVANTIS_CONFIG_JSON idempotently', () => {
+    process.env.BILVANTIS_CONFIG_JSON = JSON.stringify({
       keys: [{ platform: 'groq', key: 'gsk_config_key', label: 'config' }],
     });
 

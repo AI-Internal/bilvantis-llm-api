@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb, getUnifiedApiKey } from '../../db/index.js';
@@ -29,7 +30,7 @@ describe('Proxy authentication and CORS', () => {
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
-    app = createApp();
+    ensureTestUser();    app = createApp();
   });
 
   it('requires the unified API key for loopback chat completions', async () => {
@@ -46,7 +47,7 @@ describe('Proxy authentication and CORS', () => {
   it('rejects a wrong key supplied via the x-api-key header', async () => {
     const { status, body } = await request(app, 'POST', '/v1/chat/completions', {
       messages: [{ role: 'user', content: 'hello' }],
-    }, { 'x-api-key': 'freellmapi-wrong-key' });
+    }, { 'x-api-key': 'bilvantisllmapi-wrong-key' });
 
     expect(status).toBe(401);
     expect(body.error.type).toBe('authentication_error');

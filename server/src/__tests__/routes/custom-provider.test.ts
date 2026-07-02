@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
+let testUserId = 0;
 import http from 'node:http';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
@@ -73,7 +75,7 @@ describe('Custom Provider Endpoints', () => {
     beforeAll(() => {
       process.env.ENCRYPTION_KEY = '0'.repeat(64);
       initDb(':memory:');
-      // Isolate tests to use global fallback_config
+      testUserId = ensureTestUser().userId;      // Isolate tests to use global fallback_config
       getDb().prepare("DELETE FROM settings WHERE key = 'active_profile_id'").run();
       app = createApp();
       dashToken = mintDashboardToken();
@@ -149,7 +151,7 @@ describe('Custom Provider Endpoints', () => {
   it('routes a request to the custom model through its base URL', () => {
     // The seeded built-in models have no keys, so the only routable model is
     // the custom one we registered above.
-    const route = routeRequest(1000);
+    const route = routeRequest(testUserId, 1000);
     expect(route.platform).toBe('custom');
     expect((route.provider as any).baseUrl).toBe('http://127.0.0.1:11434/v1');
     expect(['qwen3:4b', 'llama3:8b']).toContain(route.modelId);
@@ -276,11 +278,11 @@ describe('Custom Provider Endpoints', () => {
       const llamaId = (db.prepare("SELECT id FROM models WHERE platform = 'custom' AND model_id = 'llama3:8b'").get() as any).id;
       const qwenId = (db.prepare("SELECT id FROM models WHERE platform = 'custom' AND model_id = 'qwen3:4b'").get() as any).id;
 
-      const llamaRoute = routeRequest(1000, undefined, llamaId);
+      const llamaRoute = routeRequest(testUserId, 1000, undefined, llamaId);
       expect(llamaRoute.modelId).toBe('llama3:8b');
       expect((llamaRoute.provider as any).baseUrl).toBe('http://127.0.0.1:11434/v1');
 
-      const qwenRoute = routeRequest(1000, undefined, qwenId);
+      const qwenRoute = routeRequest(testUserId, 1000, undefined, qwenId);
       expect(qwenRoute.modelId).toBe('qwen3:4b');
       expect((qwenRoute.provider as any).baseUrl).toBe('http://127.0.0.1:1234/v1');
     });

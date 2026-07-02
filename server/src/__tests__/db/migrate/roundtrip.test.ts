@@ -9,6 +9,7 @@ const CUSTOM_PROVIDER_MODALITIES_FILENAME = '20260627_000001_custom_provider_mod
 const CATALOG_MODEL_STATE_FILENAME = '20260627_000002_catalog_model_state.ts';
 const REQUEST_AGGREGATES_FILENAME = '20260628_120000_request_aggregates.ts';
 const GITHUB_GPT41_CONTEXT_FILENAME = '20260630_000001_github_gpt41_context.ts';
+const MULTI_TENANT_FILENAME = '20260703_000001_multi_tenant.ts';
 
 interface SchemaRow {
   type: string;
@@ -64,6 +65,7 @@ describe('migration round trip', () => {
         CATALOG_MODEL_STATE_FILENAME,
         REQUEST_AGGREGATES_FILENAME,
         GITHUB_GPT41_CONTEXT_FILENAME,
+        MULTI_TENANT_FILENAME,
       ]);
     } finally {
       db.close();

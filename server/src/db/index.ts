@@ -1,4 +1,3 @@
-import crypto from 'crypto';
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
@@ -7,7 +6,7 @@ import { runMigrationsSync } from './migrate/runner.js';
 import { initEncryptionKey, isEncryptionKeyInitialized } from '../lib/crypto.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.resolve(__dirname, '../../data/freeapi.db');
+const DB_PATH = path.resolve(__dirname, '../../data/bilvantis.db');
 
 let db: Database.Database;
 
@@ -19,7 +18,7 @@ export function getDb(): Database.Database {
 }
 
 export function getDefaultDbPath(): string {
-  return process.env.FREEAPI_DB_PATH?.trim() || DB_PATH;
+  return process.env.BILVANTIS_DB_PATH?.trim() || DB_PATH;
 }
 
 export function connectDb(
@@ -77,17 +76,15 @@ export function initDb(
   return db;
 }
 
+// Multi-tenant note: proxy keys are now per-user (users.proxy_key). Production
+// authenticates /v1 via services/auth.getUserByProxyKey and shows each user
+// their own key through /api/settings/api-key. This helper returns the FIRST
+// user's proxy key and remains only for tooling/tests that predate per-user
+// keys; it is not used on the request path.
 export function getUnifiedApiKey(): string {
   const db = getDb();
-  const row = db.prepare("SELECT value FROM settings WHERE key = 'unified_api_key'").get() as { value: string };
-  return row.value;
-}
-
-export function regenerateUnifiedKey(): string {
-  const db = getDb();
-  const key = `freellmapi-${crypto.randomBytes(24).toString('hex')}`;
-  db.prepare("UPDATE settings SET value = ? WHERE key = 'unified_api_key'").run(key);
-  return key;
+  const row = db.prepare('SELECT proxy_key FROM users ORDER BY id ASC LIMIT 1').get() as { proxy_key: string | null } | undefined;
+  return row?.proxy_key ?? '';
 }
 
 // Generic key/value settings accessors (used by routing strategy, etc.).

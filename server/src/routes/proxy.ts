@@ -2,12 +2,13 @@ import crypto from 'crypto';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
-import type { ChatMessage, ChatToolCall, ModelListRow } from '@freellmapi/shared/types.js';
+import type { ChatMessage, ChatToolCall, ModelListRow } from '@bilvantisllmapi/shared/types.js';
 import { routeRequest, resolveRoutingChain, resolveModelGroupCandidates, recordRateLimitHit, recordSuccess, hasEnabledVisionModel, hasEnabledToolsModel, type RouteResult, type ResolvedChain, type ChainRow } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit, PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, learnLimitFromError } from '../services/ratelimit.js';
 import { runEmbeddings, EmbeddingsError } from '../services/embeddings.js';
 import { runImageGeneration, runSpeech, MediaError } from '../services/media.js';
-import { getDb, getUnifiedApiKey } from '../db/index.js';
+import { getDb } from '../db/index.js';
+import { getUserByProxyKey } from '../services/auth.js';
 import { contentToString, messageHasImage, normalizeOutboundContent, sanitizeResponse } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
@@ -16,7 +17,7 @@ import { getContextHandoffMode, recordIncomingMessages, maybeInjectContextHandof
 import { isFusionModel, runFusion, fusionConfigSchema, FusionError, FUSION_MODEL_ID } from '../services/fusion.js';
 import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError, isProviderBadRequestError } from '../lib/error-classify.js';
 import { logRequest } from '../lib/request-log.js';
-import type { Platform } from '@freellmapi/shared/types.js';
+import type { Platform } from '@bilvantisllmapi/shared/types.js';
 import { inferQuotaPoolKey, type QuotaObservationContext } from '../services/provider-quota.js';
 import { isUnifyEnabled, getModelGroups, resolveRequestedIdToMembers } from '../services/model-groups.js';
 import { buildModelListing } from '../services/model-listing.js';
@@ -24,7 +25,7 @@ import { buildModelListing } from '../services/model-listing.js';
 export const proxyRouter = Router();
 
 // Virtual "auto" model. Clients like Hermes require a non-empty `model` field
-// on every request, but freellmapi's whole point is to pick the model itself.
+// on every request, but bilvantisllmapi's whole point is to pick the model itself.
 // Requesting this id means "let the router decide" — identical to omitting
 // `model` entirely.
 const AUTO_MODEL_ID = 'auto';
@@ -63,6 +64,17 @@ export function extractApiToken(req: Request): string | undefined {
   const xApiKey = Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader;
   const trimmed = xApiKey?.trim();
   return trimmed || undefined;
+}
+
+// Authenticate a /v1 proxy request to its owning user via the per-user proxy
+// key. Each user has their own key, their own provider keys, and their own
+// usage — so the resolved userId scopes both routing and analytics. Returns
+// the userId on success, or null (caller replies 401). The DB lookup is an
+// indexed exact match on a 48-hex random key, so timing is not a practical
+// recovery vector the way a per-character compare against a known key was.
+export function authenticateProxy(req: Request): number | null {
+  const user = getUserByProxyKey(extractApiToken(req));
+  return user ? user.userId : null;
 }
 
 function quotaContextForRoute(route: RouteResult, endpoint: string): QuotaObservationContext {
@@ -192,9 +204,8 @@ export function setStickyModel(messages: ChatMessage[], modelDbId: number, sessi
 // OpenAI-compatible /models endpoint (used by Hermes for metadata) 
 // shows API models which is linked by the user
 proxyRouter.get('/models', (req: Request, res: Response) => {
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+  const proxyUserId = authenticateProxy(req);
+  if (proxyUserId === null) {
     res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
     return;
   }
@@ -212,7 +223,7 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
   // window among models that can serve a request right now. Advertising null
   // makes OpenAI-compatible clients (opencode, Continue) fall back to their own
   // conservative default and truncate long inputs before they reach us (#282).
-  const { models: allListed, autoContextWindow } = buildModelListing();
+  const { models: allListed, autoContextWindow } = buildModelListing(proxyUserId);
 
   const q = String(req.query.available ?? req.query.connected ?? '').toLowerCase();
   const onlyAvailable = q === '1' || q === 'true' || q === 'yes';
@@ -225,7 +236,7 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
         id: AUTO_MODEL_ID,
         object: 'model',
         created: 0,
-        owned_by: 'freellmapi',
+        owned_by: 'bilvantisllmapi',
         name: 'Auto (router picks the best available model)',
         context_window: autoContextWindow,
         // `context_length` is OpenRouter's field name and the one most
@@ -239,7 +250,7 @@ proxyRouter.get('/models', (req: Request, res: Response) => {
         id: FUSION_MODEL_ID,
         object: 'model',
         created: 0,
-        owned_by: 'freellmapi',
+        owned_by: 'bilvantisllmapi',
         name: 'Fusion (panel of models answer in parallel, a judge synthesizes one answer)',
         context_window: autoContextWindow,
         context_length: autoContextWindow,
@@ -447,9 +458,8 @@ const EmbeddingsBody = z.object({
 });
 
 proxyRouter.post('/embeddings', async (req: Request, res: Response) => {
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+  const proxyUserId = authenticateProxy(req);
+  if (proxyUserId === null) {
     res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
     return;
   }
@@ -460,7 +470,7 @@ proxyRouter.post('/embeddings', async (req: Request, res: Response) => {
   }
   const inputs = Array.isArray(parsed.data.input) ? parsed.data.input : [parsed.data.input];
   try {
-    const result = await runEmbeddings(parsed.data.model, inputs, parsed.data.dimensions);
+    const result = await runEmbeddings(proxyUserId, parsed.data.model, inputs, parsed.data.dimensions);
     res.json({
       object: 'list',
       data: result.vectors.map((values, i) => ({ object: 'embedding', index: i, embedding: values })),
@@ -495,9 +505,8 @@ function mediaErrorType(status: number): string {
 }
 
 proxyRouter.post('/images/generations', async (req: Request, res: Response) => {
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+  const proxyUserId = authenticateProxy(req);
+  if (proxyUserId === null) {
     res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
     return;
   }
@@ -507,7 +516,7 @@ proxyRouter.post('/images/generations', async (req: Request, res: Response) => {
     return;
   }
   try {
-    const result = await runImageGeneration(parsed.data.model, {
+    const result = await runImageGeneration(proxyUserId, parsed.data.model, {
       prompt: parsed.data.prompt, n: parsed.data.n, size: parsed.data.size,
     });
     res.json({
@@ -533,9 +542,8 @@ const SpeechBody = z.object({
 });
 
 proxyRouter.post('/audio/speech', async (req: Request, res: Response) => {
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+  const proxyUserId = authenticateProxy(req);
+  if (proxyUserId === null) {
     res.status(401).json({ error: { message: 'Invalid API key', type: 'authentication_error' } });
     return;
   }
@@ -545,7 +553,7 @@ proxyRouter.post('/audio/speech', async (req: Request, res: Response) => {
     return;
   }
   try {
-    const result = await runSpeech(parsed.data.model, {
+    const result = await runSpeech(proxyUserId, parsed.data.model, {
       input: parsed.data.input, voice: parsed.data.voice, format: parsed.data.response_format,
     });
     res.setHeader('Content-Type', result.contentType);
@@ -621,9 +629,8 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
   const requestGroupId = getRequestGroupId(req);
   res.setHeader('X-Request-ID', requestGroupId);
 
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+  const proxyUserId = authenticateProxy(req);
+  if (proxyUserId === null) {
     res.status(401).json({
       error: { message: 'Invalid API key', type: 'authentication_error' },
     });
@@ -705,6 +712,7 @@ proxyRouter.post('/completions', async (req: Request, res: Response) => {
     let route: RouteResult;
     try {
       route = routeRequest(
+        proxyUserId,
         estimatedTotal,
         skipKeys.size > 0 ? skipKeys : undefined,
         preferredModel,
@@ -942,9 +950,8 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   // Authenticate with the unified API key for every proxy request, including
   // loopback callers. Browser pages can reach localhost, so socket locality is
   // not a reliable authorization boundary.
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+  const proxyUserId = authenticateProxy(req);
+  if (proxyUserId === null) {
     res.status(401).json({
       error: { message: 'Invalid API key', type: 'authentication_error' },
     });
@@ -1150,6 +1157,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       let answerStarted = false;
       try {
         const { response } = await runFusion({
+          userId: proxyUserId,
           messages,
           config: fusionConfig,
           options: fusionOptions,
@@ -1203,6 +1211,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
 
     try {
       const { response, routedVia } = await runFusion({
+        userId: proxyUserId,
         messages,
         config: fusionConfig,
         options: fusionOptions,
@@ -1337,7 +1346,7 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
       // model is on record). Turns where injection can't happen — every turn 1, and
       // sessions that never switched — pay no headroom tax.
       const routingEstimate = handoffPossible ? estimatedTotal + HANDOFF_MAX_TOKENS : estimatedTotal;
-      route = routeRequest(routingEstimate, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, groupChain ?? resolvedChain?.chain);
+      route = routeRequest(proxyUserId, routingEstimate, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined, groupChain ?? resolvedChain?.chain);
     } catch (err: any) {
       // No more models available
       if (lastError) {

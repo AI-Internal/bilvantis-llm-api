@@ -1,4 +1,4 @@
-import type { Platform } from '@freellmapi/shared/types.js';
+import type { Platform } from '@bilvantisllmapi/shared/types.js';
 import type { BaseProvider } from './base.js';
 import { GoogleProvider } from './google.js';
 import { OpenAICompatProvider } from './openai-compat.js';
@@ -58,7 +58,7 @@ register(new OpenAICompatProvider({
   baseUrl: 'https://openrouter.ai/api/v1',
   extraHeaders: {
     'HTTP-Referer': 'http://localhost:3001',
-    'X-Title': 'FreeLLMAPI',
+    'X-Title': 'BilvantisLLM-API',
   },
 }));
 
@@ -193,8 +193,8 @@ register(new OpenAICompatProvider({
 // "during this period"), and there is a paid Token/Unlimited subscription
 // underneath, so watch for reversion to paid. ~30 concurrent requests succeed
 // before 429s (no documented RPM/RPD). Free key from platform.agnes-ai.com,
-// no card. Catalog rows live in the catalog (premium → age into free); not
-// shipped as freeapi model migrations.
+// no card. Catalog rows live in the catalog (distributed via catalog-sync); not
+// shipped as bilvantis model migrations.
 register(new OpenAICompatProvider({
   platform: 'agnes',
   name: 'Agnes AI',
@@ -211,8 +211,8 @@ register(new OpenAICompatProvider({
 // calls succeed with no 402. The OpenAI-compatible /v1/models lists two models:
 // reka-flash-3 (text reasoning) and reka-edge-2603 (natively multimodal —
 // accepts image/video input). Balance is dashboard-only (no credits API).
-// Catalog rows live in the catalog (premium → age into free); they are NOT
-// shipped as freeapi model migrations.
+// Catalog rows live in the catalog (distributed via catalog-sync); they are NOT
+// shipped as bilvantis model migrations.
 register(new OpenAICompatProvider({
   platform: 'reka',
   name: 'Reka',
@@ -223,7 +223,7 @@ register(new OpenAICompatProvider({
 // for its FREE generative-media models (FLUX.1-schnell image, CosyVoice2 TTS),
 // which route via services/media.ts; OpenAI-compatible chat is supported too.
 // Key from siliconflow.com, no card; validateKey uses GET /v1/models (200 with
-// a valid key). Catalog rows live in the catalog (premium → age into free).
+// a valid key). Catalog rows live in the catalog (distributed via catalog-sync).
 register(new OpenAICompatProvider({
   platform: 'siliconflow',
   name: 'SiliconFlow',
@@ -235,13 +235,13 @@ register(new OpenAICompatProvider({
 // 20 rpm / 200 rpd, but a live test on 2026-06-26 observed a stricter 5 rpm).
 // Cloudflare in front rejects non-browser User-Agents with error 1010, so a
 // browser-style UA is required. Free key from routeway.ai (no card). Catalog
-// rows live in the catalog (premium → age into free).
+// rows live in the catalog (distributed via catalog-sync).
 register(new OpenAICompatProvider({
   platform: 'routeway',
   name: 'Routeway',
   baseUrl: 'https://api.routeway.ai/v1',
   extraHeaders: {
-    'User-Agent': 'Mozilla/5.0 FreeLLMAPI/1.0',
+    'User-Agent': 'Mozilla/5.0 BilvantisLLM-API/1.0',
   },
 }));
 
@@ -261,7 +261,7 @@ register(new OpenAICompatProvider({
 // Advertises a recurring ~10M tokens/month free allocation (no card), though
 // its own pages disagree on scale; treat the quota as unverified until a real
 // account confirms it. Bearer auth works (X-API-Key also accepted). Catalog
-// rows live in the catalog (premium → age into free).
+// rows live in the catalog (distributed via catalog-sync).
 register(new OpenAICompatProvider({
   platform: 'ainative',
   name: 'AINative Studio',

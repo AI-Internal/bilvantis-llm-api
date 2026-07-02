@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
+let testUserId = 0;
 import { initDb, getDb } from '../../db/index.js';
 import { encrypt } from '../../lib/crypto.js';
 import {
@@ -13,7 +15,7 @@ describe('Router', () => {
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
-  });
+    testUserId = ensureTestUser().userId;  });
 
   beforeEach(() => {
     const db = getDb();
@@ -36,7 +38,7 @@ describe('Router', () => {
   });
 
   it('should throw when no keys are configured', () => {
-    expect(() => routeRequest()).toThrow(/exhausted/i);
+    expect(() => routeRequest(testUserId)).toThrow(/exhausted/i);
   });
 
   it('should route to highest priority model with available key', () => {
@@ -47,7 +49,7 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', encrypted, iv, authTag, 'healthy', 1);
 
-    const result = routeRequest();
+    const result = routeRequest(testUserId);
     expect(result.platform).toBe('groq');
     expect(result.apiKey).toBe('test-groq-key');
   });
@@ -70,7 +72,7 @@ describe('Router', () => {
     // Post-V6: Google's gemini-3.1-pro-preview (rank 1, free-tier-eligible per
     // probe on 2026-04-25) outranks Groq's best free-tier model openai/gpt-oss-120b
     // (rank 6). With keys for both platforms, Google wins.
-    const result = routeRequest();
+    const result = routeRequest(testUserId);
     expect(result.platform).toBe('google');
   });
 
@@ -89,7 +91,7 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
 
-    const result = routeRequest();
+    const result = routeRequest(testUserId);
     expect(result.platform).toBe('groq');
   });
 
@@ -108,7 +110,7 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
 
-    const result = routeRequest();
+    const result = routeRequest(testUserId);
     expect(result.platform).toBe('groq');
   });
 
@@ -125,14 +127,14 @@ describe('Router', () => {
     db.prepare("UPDATE models SET tpm_limit = NULL, tpd_limit = NULL WHERE platform = 'groq'").run();
 
     // Whatever model a small request lands on, give it a tiny context window.
-    const baseline = routeRequest(5);
+    const baseline = routeRequest(testUserId, 5);
     db.prepare('UPDATE models SET context_window = 10 WHERE id = ?').run(baseline.modelDbId);
 
     // A small request still lands on it (5 < 10) ...
-    expect(routeRequest(5).modelDbId).toBe(baseline.modelDbId);
+    expect(routeRequest(testUserId, 5).modelDbId).toBe(baseline.modelDbId);
 
     // ... but a request larger than its window is routed elsewhere (2000 > 10).
-    const large = routeRequest(2000);
+    const large = routeRequest(testUserId, 2000);
     expect(large.modelDbId).not.toBe(baseline.modelDbId);
   });
 
@@ -168,8 +170,8 @@ describe('Router', () => {
     `).run(github.id, groq.id);
 
     expect(github.context_window).toBe(8000);
-    expect(routeRequest(7000).modelDbId).toBe(github.id);
-    expect(routeRequest(9000).modelDbId).toBe(groq.id);
+    expect(routeRequest(testUserId, 7000).modelDbId).toBe(github.id);
+    expect(routeRequest(testUserId, 9000).modelDbId).toBe(groq.id);
   });
 
   it('still routes a model with an unknown (null) context window (#167)', () => {
@@ -182,7 +184,7 @@ describe('Router', () => {
     db.prepare("UPDATE models SET tpm_limit = NULL, tpd_limit = NULL WHERE platform = 'groq'").run();
     // A null context_window means "unknown" — never filtered out, even for a huge request.
     db.prepare("UPDATE models SET context_window = NULL WHERE platform = 'groq'").run();
-    expect(() => routeRequest(500000)).not.toThrow();
+    expect(() => routeRequest(testUserId, 500000)).not.toThrow();
   });
 
   it('should skip keys that cannot be decrypted and use a valid fallback key', () => {
@@ -199,7 +201,7 @@ describe('Router', () => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run('groq', 'test', groqKey.encrypted, groqKey.iv, groqKey.authTag, 'healthy', 1);
 
-    const result = routeRequest();
+    const result = routeRequest(testUserId);
     const corruptKey = db.prepare("SELECT status FROM api_keys WHERE label = 'corrupt'").get() as { status: string };
 
     expect(result.platform).toBe('groq');
@@ -227,7 +229,7 @@ describe('Router exhaustion diagnostics (issue _1)', () => {
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
-  });
+    testUserId = ensureTestUser().userId;  });
 
   beforeEach(() => {
     const db = getDb();
@@ -246,7 +248,7 @@ describe('Router exhaustion diagnostics (issue _1)', () => {
     // must carry diagnostics so the synchronous routing_error is debuggable
     // instead of opaque (the failure that NOTHING else logs).
     let caught: any;
-    try { routeRequest(); } catch (e) { caught = e; }
+    try { routeRequest(testUserId); } catch (e) { caught = e; }
     expect(caught).toBeDefined();
     expect(Array.isArray(caught.diagnostics)).toBe(true);
     expect(caught.diagnostics.length).toBeGreaterThan(0);
@@ -271,7 +273,7 @@ describe('Router exhaustion diagnostics (issue _1)', () => {
     for (const m of groqModels) setCooldown('groq', m.model_id, keyId, 5 * 60 * 1000);
 
     let caught: any;
-    try { routeRequest(); } catch (e) { caught = e; }
+    try { routeRequest(testUserId); } catch (e) { caught = e; }
     expect(caught).toBeDefined();
     expect(caught.diagnostics.some((d: string) => /cooldown/.test(d))).toBe(true);
   });

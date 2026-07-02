@@ -5,12 +5,12 @@
  * - Locale data is imported as JSON (en, zh-CN) — adding a new locale is a
  *   single file under `locales/` plus a registration in `LOCALES` below.
  * - Locale preference is persisted in `localStorage` under
- *   `freellmapi.locale` and falls back to `navigator.language` on first visit
+ *   `bilvantisllmapi.locale` and falls back to `navigator.language` on first visit
  *   (snapped to the closest supported locale).
  * - The provider re-renders synchronously on `setLocale`, so all `t()` calls
  *   pick up the new strings without page reload.
  *
- * Translation keys use dot notation, e.g. `nav.models` or `premium.renewsOn`.
+ * Translation keys use dot notation, e.g. `nav.models` or `auth.signIn`.
  * `t()` does a single dotted lookup; unknown keys return the key itself
  * rather than throwing, so partial translations degrade gracefully.
  */
@@ -44,7 +44,7 @@ function detectLocale(): Locale {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') {
     return DEFAULT_LOCALE
   }
-  const stored = window.localStorage.getItem('freellmapi.locale')
+  const stored = window.localStorage.getItem('bilvantisllmapi.locale')
   if (stored && (SUPPORTED_LOCALES as readonly string[]).includes(stored)) {
     return stored as Locale
   }
@@ -116,7 +116,7 @@ export function I18nProvider({ children, initialLocale }: I18nProviderProps) {
   // see the right language attribute.
   useEffect(() => {
     if (typeof window === 'undefined') return
-    window.localStorage.setItem('freellmapi.locale', locale)
+    window.localStorage.setItem('bilvantisllmapi.locale', locale)
     document.documentElement.lang = locale
   }, [locale])
 

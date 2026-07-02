@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
+import { ensureTestUser } from '../helpers/auth.js';
 import type { Express } from 'express';
 
 // Same scripted-provider mock pattern as proxy-empty-completion.test.ts.
@@ -63,7 +64,7 @@ describe('Tool-argument repair on /v1/responses (double-encoded nested JSON)', (
   beforeAll(() => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
     initDb(':memory:');
-    app = createApp();
+    ensureTestUser();    app = createApp();
     key = getUnifiedApiKey();
 
     const db = getDb();

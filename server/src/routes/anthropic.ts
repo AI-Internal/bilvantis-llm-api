@@ -9,19 +9,18 @@ import type {
   ChatToolChoice,
   ChatContent,
   ChatContentBlock,
-} from '@freellmapi/shared/types.js';
+} from '@bilvantisllmapi/shared/types.js';
 import { routeRequest, recordRateLimitHit, recordSuccess, type RouteResult } from '../services/router.js';
 import {
   recordRequest, recordTokens, setCooldown, getCooldownDurationForLimit,
   PAYMENT_REQUIRED_COOLDOWN_MS, MODEL_FORBIDDEN_COOLDOWN_MS, learnLimitFromError,
 } from '../services/ratelimit.js';
-import { getUnifiedApiKey } from '../db/index.js';
 import { contentToString } from '../lib/content.js';
 import { repairToolArguments, toolSchemaMap } from '../lib/tool-args.js';
 import { sanitizeProviderErrorMessage } from '../lib/error-redaction.js';
 import { isRetryableError, isPaymentRequiredError, isModelNotFoundError, isModelAccessForbiddenError } from '../lib/error-classify.js';
 import { logRequest } from '../lib/request-log.js';
-import { extractApiToken, timingSafeStringEqual, getStickyModel, setStickyModel } from './proxy.js';
+import { authenticateProxy, getStickyModel, setStickyModel } from './proxy.js';
 import { resolveAnthropicModel } from '../services/anthropic-map.js';
 import { buildModelListing } from '../services/model-listing.js';
 
@@ -124,14 +123,13 @@ function newMessageId(): string {
 }
 
 // ── Auth (shared with the OpenAI route) ─────────────────────────────────────
-function authenticate(req: Request, res: Response): boolean {
-  const token = extractApiToken(req);
-  const unifiedKey = getUnifiedApiKey();
-  if (!token || !timingSafeStringEqual(token, unifiedKey)) {
+function authenticate(req: Request, res: Response): number | null {
+  const userId = authenticateProxy(req);
+  if (userId === null) {
     sendError(res, 401, 'authentication_error', 'Invalid API key');
-    return false;
+    return null;
   }
-  return true;
+  return userId;
 }
 
 // ── Request translation: Anthropic → internal (OpenAI-shaped) ───────────────
@@ -336,7 +334,8 @@ function cooldownFor(route: RouteResult, err: any): number {
 
 anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   const start = Date.now();
-  if (!authenticate(req, res)) return;
+  const proxyUserId = authenticate(req, res);
+  if (proxyUserId === null) return;
 
   const parsed = messagesSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -382,7 +381,7 @@ anthropicRouter.post('/messages', async (req: Request, res: Response) => {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     let route: RouteResult;
     try {
-      route = routeRequest(estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined);
+      route = routeRequest(proxyUserId, estimatedTotal, skipKeys.size > 0 ? skipKeys : undefined, preferredModel, hasImage, wantsTools, skipModels.size > 0 ? skipModels : undefined);
     } catch (err: any) {
       if (lastError) {
         sendError(res, 429, 'rate_limit_error', `All models rate-limited. Last error: ${sanitizeProviderErrorMessage(lastError.message)}`);
@@ -639,7 +638,7 @@ async function streamCompletion(
 // Anthropic token-counting endpoint. Claude Code calls this to size context
 // windows; we return a heuristic estimate (the proxy doesn't run a tokenizer).
 anthropicRouter.post('/messages/count_tokens', (req: Request, res: Response) => {
-  if (!authenticate(req, res)) return;
+  if (authenticate(req, res) === null) return;
   const parsed = messagesSchema.safeParse(req.body);
   if (!parsed.success) {
     sendError(res, 400, 'invalid_request_error', 'Invalid request');
@@ -663,9 +662,10 @@ anthropicRouter.post('/messages/count_tokens', (req: Request, res: Response) => 
 // which the model map sends to "auto" (or a pinned model).
 anthropicRouter.get('/models', (req: Request, res: Response, next: NextFunction) => {
   if (!req.headers['anthropic-version']) return next(); // OpenAI client → proxyRouter
-  if (!authenticate(req, res)) return;
+  const proxyUserId = authenticate(req, res);
+  if (proxyUserId === null) return;
 
-  const { models } = buildModelListing();
+  const { models } = buildModelListing(proxyUserId);
   const data = [
     { type: 'model' as const, id: 'auto', display_name: 'Auto (router picks the best available model)', created_at: MODEL_CREATED_AT },
     ...models
