@@ -19,8 +19,11 @@
 # server/src/lib/db-backup.ts) to back the encrypted DB up to object storage and
 # restore it on boot.
 #
-# ENCRYPTION_KEY is auto-generated once and persists as an env var across
-# deploys (env vars survive even on free); do not rotate it.
+# ENCRYPTION_KEY must be EXACTLY 64 hex chars (32 bytes). Render's
+# `generateValue` emits base64 (44 chars), which this app rejects — so the key
+# is set manually in the dashboard instead (sync: false). Generate one with:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# It persists as an env var across deploys; do not rotate it.
 services:
   - type: web
     name: bilvantis-llm-api
@@ -30,7 +33,7 @@ services:
     healthCheckPath: /api/ping
     envVars:
       - key: ENCRYPTION_KEY
-        generateValue: true
+        sync: false
       # Bind all interfaces; Render provides the external PORT automatically.
       - key: HOST
         value: "0.0.0.0"
