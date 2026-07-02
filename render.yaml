@@ -1,22 +1,32 @@
 # Render blueprint for BilvantisLLM-API (deploys the Docker image).
 #
-# IMPORTANT — persistence: this app stores everything (users, encrypted provider
-# keys, usage) in SQLite on disk. A durable disk is REQUIRED, and Render's FREE
-# instance type has NO disk (data is wiped on every restart/redeploy). So this
-# blueprint uses a paid instance (`starter`) with a 1 GB disk mounted at the DB
-# path. If you must stay on free, remove the `disk:` block and instead set the
-# BILVANTIS_DB_BACKUP_* env vars (see .env.example / server/src/lib/db-backup.ts)
-# to back the encrypted DB up to external object storage and restore on boot.
+# ⚠️  FREE TIER = THROWAWAY / NO PERSISTENCE.
+# This app stores everything (accounts, encrypted provider keys, usage) in
+# SQLite on the instance's disk. Render's FREE plan has NO persistent disk and
+# spins the service down after ~15 min idle, so the database is WIPED on every
+# restart, redeploy, or cold start — you will need to register the first
+# (admin) account again each time, and previously added provider keys are gone.
+# Fine for a demo; NOT for real team use.
 #
-# ENCRYPTION_KEY must stay STABLE across deploys — if it changes, previously
-# stored provider keys can no longer be decrypted. `generateValue: true` creates
-# it once and preserves it; do not rotate it.
+# To make it durable later, upgrade to a paid `plan` (e.g. `starter`) and add a
+# disk mounted at /app/server/data:
+#     plan: starter
+#     disk:
+#       name: bilvantis-data
+#       mountPath: /app/server/data
+#       sizeGB: 1
+# — or keep free and set the BILVANTIS_DB_BACKUP_* env vars (see .env.example /
+# server/src/lib/db-backup.ts) to back the encrypted DB up to object storage and
+# restore it on boot.
+#
+# ENCRYPTION_KEY is auto-generated once and persists as an env var across
+# deploys (env vars survive even on free); do not rotate it.
 services:
   - type: web
     name: bilvantis-llm-api
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     healthCheckPath: /api/ping
     envVars:
       - key: ENCRYPTION_KEY
@@ -26,7 +36,3 @@ services:
         value: "0.0.0.0"
       - key: NODE_ENV
         value: production
-    disk:
-      name: bilvantis-data
-      mountPath: /app/server/data
-      sizeGB: 1
