@@ -36,6 +36,25 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+// Account creation is restricted to company domains. Override with a
+// comma-separated ALLOWED_EMAIL_DOMAINS env var (e.g. to add a domain or, with
+// '*', to allow any). Enforced by the account-creation routes (setup, register,
+// admin-add) — the single place new users enter the system.
+const DEFAULT_ALLOWED_DOMAINS = ['neoai.com', 'bilvantis.io', 'bilvantis.ai'];
+
+export function allowedEmailDomains(): string[] {
+  const raw = process.env.ALLOWED_EMAIL_DOMAINS?.trim();
+  if (!raw) return DEFAULT_ALLOWED_DOMAINS;
+  return raw.split(',').map((d) => d.trim().toLowerCase()).filter(Boolean);
+}
+
+export function isAllowedEmailDomain(email: string): boolean {
+  const domains = allowedEmailDomains();
+  if (domains.includes('*')) return true;
+  const domain = normalizeEmail(email).split('@')[1] ?? '';
+  return domains.includes(domain);
+}
+
 function newProxyKey(): string {
   return `bilvantisllmapi-${crypto.randomBytes(24).toString('hex')}`;
 }

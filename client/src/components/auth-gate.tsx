@@ -11,6 +11,7 @@ interface AuthStatus {
   authenticated: boolean
   email: string | null
   role: 'admin' | 'member' | null
+  allowedEmailDomains: string[]
 }
 
 function Centered({ children }: { children: ReactNode }) {
@@ -21,21 +22,22 @@ function Centered({ children }: { children: ReactNode }) {
   )
 }
 
-function AuthForm({ mode, onAuthed }: { mode: 'setup' | 'login'; onAuthed: () => void }) {
+function AuthForm({ initialMode, firstAccount, allowedDomains, onAuthed }: { initialMode: 'register' | 'login'; firstAccount: boolean; allowedDomains: string[]; onAuthed: () => void }) {
   const { t } = useI18n()
+  const [mode, setMode] = useState<'register' | 'login'>(initialMode)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const isSetup = mode === 'setup'
+  const isRegister = mode === 'register'
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError('')
     try {
-      const res = await apiFetch<{ token: string }>(isSetup ? '/api/auth/setup' : '/api/auth/login', {
+      const res = await apiFetch<{ token: string }>(isRegister ? '/api/auth/register' : '/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       })
@@ -48,6 +50,11 @@ function AuthForm({ mode, onAuthed }: { mode: 'setup' | 'login'; onAuthed: () =>
     }
   }
 
+  const heading = isRegister ? t('auth.createYourAccount') : t('auth.signIn')
+  const description = isRegister
+    ? (firstAccount ? t('auth.firstAccountDescription') : t('auth.registerDescription'))
+    : t('auth.loginDescription')
+
   return (
     <Centered>
       <div className="mb-6 flex items-center gap-2">
@@ -55,12 +62,8 @@ function AuthForm({ mode, onAuthed }: { mode: 'setup' | 'login'; onAuthed: () =>
         <span className="font-semibold tracking-tight text-sm">BilvantisLLM-API</span>
       </div>
       <div className="rounded-3xl border bg-card p-6">
-        <h1 className="text-base font-medium">{isSetup ? t('auth.createYourAccount') : t('auth.signIn')}</h1>
-        <p className="text-xs text-muted-foreground mt-1 mb-4">
-          {isSetup
-            ? t('auth.setupDescription')
-            : t('auth.loginDescription')}
-        </p>
+        <h1 className="text-base font-medium">{heading}</h1>
+        <p className="text-xs text-muted-foreground mt-1 mb-4">{description}</p>
         <form onSubmit={submit} className="space-y-3">
           <div className="space-y-1.5">
             <Label className="text-xs" htmlFor="auth-email">{t('auth.email')}</Label>
@@ -72,23 +75,39 @@ function AuthForm({ mode, onAuthed }: { mode: 'setup' | 'login'; onAuthed: () =>
               onChange={e => setEmail(e.target.value)}
               placeholder={t('auth.emailPlaceholder')}
             />
+            {isRegister && allowedDomains.length > 0 && !allowedDomains.includes('*') && (
+              <p className="text-[11px] text-muted-foreground">
+                {t('auth.allowedDomainsHint')} {allowedDomains.map(d => '@' + d).join(', ')}
+              </p>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs" htmlFor="auth-password">{t('auth.password')}</Label>
             <Input
               id="auth-password"
               type="password"
-              autoComplete={isSetup ? 'new-password' : 'current-password'}
+              autoComplete={isRegister ? 'new-password' : 'current-password'}
               value={password}
               onChange={e => setPassword(e.target.value)}
-              placeholder={isSetup ? t('auth.passwordPlaceholderSetup') : t('auth.passwordPlaceholderLogin')}
+              placeholder={isRegister ? t('auth.passwordPlaceholderSetup') : t('auth.passwordPlaceholderLogin')}
             />
           </div>
           {error && <p className="text-destructive text-xs">{error}</p>}
           <Button type="submit" className="w-full" disabled={busy || !email || !password}>
-            {busy ? (isSetup ? t('auth.creating') : t('auth.signingIn')) : isSetup ? t('auth.createAccount') : t('auth.signIn')}
+            {busy ? (isRegister ? t('auth.creating') : t('auth.signingIn')) : isRegister ? t('auth.createAccount') : t('auth.signIn')}
           </Button>
         </form>
+        {/* The first-ever account must be a registration (it becomes the admin),
+            so the toggle is hidden until at least one account exists. */}
+        {!firstAccount && (
+          <button
+            type="button"
+            onClick={() => { setError(''); setMode(isRegister ? 'login' : 'register') }}
+            className="mt-4 w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {isRegister ? t('auth.haveAccount') : t('auth.needAccount')}
+          </button>
+        )}
       </div>
     </Centered>
   )
@@ -126,8 +145,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
     )
   }
 
-  if (data.needsSetup) return <AuthForm mode="setup" onAuthed={onAuthed} />
-  if (!data.authenticated) return <AuthForm mode="login" onAuthed={onAuthed} />
+  if (!data.authenticated) {
+    // First-ever visit (no users) defaults to Register and creates the admin;
+    // afterwards default to Login but let visitors toggle to self-register.
+    return <AuthForm initialMode={data.needsSetup ? 'register' : 'login'} firstAccount={data.needsSetup} allowedDomains={data.allowedEmailDomains ?? []} onAuthed={onAuthed} />
+  }
 
   return <>{children}</>
 }

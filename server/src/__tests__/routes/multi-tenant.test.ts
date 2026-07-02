@@ -35,17 +35,17 @@ describe('multi-tenant isolation', () => {
     app = createApp();
 
     // First account = admin (via first-run setup).
-    const setup = await http(app, 'POST', '/api/auth/setup', { email: 'admin@example.com', password: 'password123' });
+    const setup = await http(app, 'POST', '/api/auth/setup', { email: 'admin@bilvantis.io', password: 'password123' });
     expect(setup.status).toBe(201);
     expect(setup.body.role).toBe('admin');
     adminToken = setup.body.token;
 
     // Admin adds a member.
-    const created = await http(app, 'POST', '/api/users', { email: 'member@example.com', password: 'password123' }, adminToken);
+    const created = await http(app, 'POST', '/api/users', { email: 'member@bilvantis.io', password: 'password123' }, adminToken);
     expect(created.status).toBe(201);
     expect(created.body.user.role).toBe('member');
 
-    const login = await http(app, 'POST', '/api/auth/login', { email: 'member@example.com', password: 'password123' }, undefined);
+    const login = await http(app, 'POST', '/api/auth/login', { email: 'member@bilvantis.io', password: 'password123' }, undefined);
     expect(login.status).toBe(200);
     memberToken = login.body.token;
   });

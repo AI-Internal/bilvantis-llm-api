@@ -55,7 +55,7 @@ describe('Dashboard auth (#35)', () => {
 
   let token = '';
   it('creates the first account on setup and returns a working token', async () => {
-    const { status, body } = await call(app, 'POST', '/api/auth/setup', { email: 'admin@example.com', password: 'supersecret' });
+    const { status, body } = await call(app, 'POST', '/api/auth/setup', { email: 'admin@bilvantis.io', password: 'supersecret' });
     expect(status).toBe(201);
     expect(typeof body.token).toBe('string');
     token = body.token;
@@ -63,27 +63,43 @@ describe('Dashboard auth (#35)', () => {
   });
 
   it('refuses a second setup once an account exists', async () => {
-    const { status } = await call(app, 'POST', '/api/auth/setup', { email: 'second@example.com', password: 'supersecret' });
+    const { status } = await call(app, 'POST', '/api/auth/setup', { email: 'second@bilvantis.io', password: 'supersecret' });
     expect(status).toBe(409);
   });
 
+  it('allows open self-registration as a member after setup, and rejects duplicate emails', async () => {
+    const { status, body } = await call(app, 'POST', '/api/auth/register', { email: 'member@bilvantis.io', password: 'supersecret' });
+    expect(status).toBe(201);
+    expect(body.role).toBe('member');
+    expect(typeof body.token).toBe('string');
+    // Registering that same email again is a 409, not a silent overwrite.
+    const dup = await call(app, 'POST', '/api/auth/register', { email: 'member@bilvantis.io', password: 'supersecret' });
+    expect(dup.status).toBe(409);
+  });
+
+  it('rejects registration from a non-company email domain', async () => {
+    const { status, body } = await call(app, 'POST', '/api/auth/register', { email: 'someone@gmail.com', password: 'supersecret' });
+    expect(status).toBe(400);
+    expect(body.error.message).toMatch(/@bilvantis\.io/);
+  });
+
   it('logs in with correct credentials and rejects wrong ones', async () => {
-    const ok = await call(app, 'POST', '/api/auth/login', { email: 'admin@example.com', password: 'supersecret' });
+    const ok = await call(app, 'POST', '/api/auth/login', { email: 'admin@bilvantis.io', password: 'supersecret' });
     expect(ok.status).toBe(200);
     expect(typeof ok.body.token).toBe('string');
 
-    const bad = await call(app, 'POST', '/api/auth/login', { email: 'admin@example.com', password: 'wrongpassword' });
+    const bad = await call(app, 'POST', '/api/auth/login', { email: 'admin@bilvantis.io', password: 'wrongpassword' });
     expect(bad.status).toBe(401);
     expect(bad.body.error.type).toBe('authentication_error');
   });
 
   it('reports authenticated status with a valid token', async () => {
     const { body } = await call(app, 'GET', '/api/auth/status', undefined, token);
-    expect(body).toMatchObject({ needsSetup: false, authenticated: true, email: 'admin@example.com' });
+    expect(body).toMatchObject({ needsSetup: false, authenticated: true, email: 'admin@bilvantis.io' });
   });
 
   it('invalidates the token on logout', async () => {
-    const login = await call(app, 'POST', '/api/auth/login', { email: 'admin@example.com', password: 'supersecret' });
+    const login = await call(app, 'POST', '/api/auth/login', { email: 'admin@bilvantis.io', password: 'supersecret' });
     const t = login.body.token;
     expect((await call(app, 'GET', '/api/keys', undefined, t)).status).toBe(200);
     await call(app, 'POST', '/api/auth/logout', {}, t);
@@ -91,7 +107,7 @@ describe('Dashboard auth (#35)', () => {
   });
 
   it('locks out after repeated failed attempts (separate email, no real account)', async () => {
-    const creds = { email: 'attacker@example.com', password: 'guessguess' };
+    const creds = { email: 'attacker@bilvantis.io', password: 'guessguess' };
     for (let i = 0; i < 5; i++) {
       expect((await call(app, 'POST', '/api/auth/login', creds)).status).toBe(401);
     }

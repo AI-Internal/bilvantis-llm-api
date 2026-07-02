@@ -8,6 +8,8 @@ import {
   createUser,
   deleteUser,
   regenerateProxyKey,
+  isAllowedEmailDomain,
+  allowedEmailDomains,
 } from '../services/auth.js';
 
 // Admin-only team management. Mounted at /api/users behind requireAuth +
@@ -35,6 +37,11 @@ usersRouter.post('/', (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: { message: parsed.error.errors.map((e) => e.message).join(', '), type: 'invalid_request_error' } });
+    return;
+  }
+  if (!isAllowedEmailDomain(parsed.data.email)) {
+    const list = allowedEmailDomains();
+    res.status(400).json({ error: { message: list.includes('*') ? 'Email domain not allowed.' : `Email must be a ${list.map((d) => '@' + d).join(', ')} address.`, type: 'invalid_request_error' } });
     return;
   }
   try {

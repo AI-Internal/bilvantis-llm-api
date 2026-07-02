@@ -8,9 +8,27 @@ import {
   createSession,
   validateSession,
   deleteSession,
+  isAllowedEmailDomain,
+  allowedEmailDomains,
 } from '../services/auth.js';
 
 export const authRouter = Router();
+
+// Shared 400 for a disallowed signup domain. Returns true when the email was
+// rejected (caller should stop), false when it's fine to proceed.
+function rejectDisallowedDomain(email: string, res: Response): boolean {
+  if (isAllowedEmailDomain(email)) return false;
+  const list = allowedEmailDomains();
+  res.status(400).json({
+    error: {
+      message: list.includes('*')
+        ? 'Email domain not allowed.'
+        : `Email must be a ${list.map((d) => '@' + d).join(', ')} address.`,
+      type: 'invalid_request_error',
+    },
+  });
+  return true;
+}
 
 // Dashboard auth (#35). These routes are mounted BEFORE requireAuth, so
 // /status, /setup and /login are reachable without a session (bootstrap);
@@ -59,6 +77,8 @@ authRouter.get('/status', (req: Request, res: Response) => {
     authenticated: !!session,
     email: session?.email ?? null,
     role: session?.role ?? null,
+    // Lets the auth page show which email domains registration accepts.
+    allowedEmailDomains: allowedEmailDomains(),
   });
 });
 
@@ -74,9 +94,34 @@ authRouter.post('/setup', (req: Request, res: Response) => {
     res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
     return;
   }
+  if (rejectDisallowedDomain(parsed.data.email, res)) return;
   const user = createUser(parsed.data.email, parsed.data.password);
   const token = createSession(user.userId);
   res.status(201).json({ token, email: user.email, role: user.role });
+});
+
+// Open self-service signup. Unlike /setup this stays available after the first
+// account exists — the auth page offers a Register ⇄ Login toggle. createUser
+// makes the very first account the admin and every later one a member, so the
+// first person to register still becomes the owner.
+authRouter.post('/register', (req: Request, res: Response) => {
+  const parsed = credentialsSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
+    return;
+  }
+  if (rejectDisallowedDomain(parsed.data.email, res)) return;
+  try {
+    const user = createUser(parsed.data.email, parsed.data.password);
+    const token = createSession(user.userId);
+    res.status(201).json({ token, email: user.email, role: user.role });
+  } catch (err: any) {
+    if (err?.code === 'email_taken') {
+      res.status(409).json({ error: { message: 'An account with that email already exists', type: 'email_taken' } });
+      return;
+    }
+    throw err;
+  }
 });
 
 authRouter.post('/login', (req: Request, res: Response) => {
