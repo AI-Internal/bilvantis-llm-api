@@ -1,0 +1,61 @@
+# Deploy BilvantisLLM-API to an Azure Web App (Linux container) on every push
+# to main. This runs as the repo's OWN GitHub Action and authenticates to Azure
+# with a publish-profile secret, so it does NOT require linking GitHub to Azure
+# via Deployment Center (which an org owner would have to approve).
+#
+# One-time setup:
+#   1. Create the Web App (Linux, Container, B1) in Azure — any placeholder
+#      image is fine; this workflow overwrites it.
+#   2. Azure Portal → your Web App → Overview → "Download publish profile".
+#   3. GitHub repo → Settings → Secrets and variables → Actions → New repository
+#      secret named AZURE_WEBAPP_PUBLISH_PROFILE, paste the whole file contents.
+#   4. Set AZURE_WEBAPP_NAME below to the exact name of your Web App.
+#   5. In the Web App → Environment variables, add:
+#        WEBSITES_PORT=3001
+#        ENCRYPTION_KEY=<64-hex>
+#        BILVANTIS_DB_PATH=/home/data/bilvantis.db
+#        WEBSITES_ENABLE_APP_SERVICE_STORAGE=true
+name: Deploy to Azure Web App
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  # 👇 CHANGE THIS to your Web App's exact name (from the Azure portal).
+  AZURE_WEBAPP_NAME: bilvantis-llm-api
+  IMAGE: ghcr.io/${{ github.repository_owner }}/bilvantis-llm-api
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          images: ${{ env.IMAGE }}:${{ github.sha }}
