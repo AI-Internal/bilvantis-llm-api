@@ -1,61 +1,53 @@
-# Deploy BilvantisLLM-API to an Azure Web App (Linux container) on every push
-# to main. This runs as the repo's OWN GitHub Action and authenticates to Azure
-# with a publish-profile secret, so it does NOT require linking GitHub to Azure
-# via Deployment Center (which an org owner would have to approve).
+# Build the BilvantisLLM-API container and push it to Docker Hub on every push
+# to main. Azure App Service then pulls it automatically via a Deployment Center
+# webhook — so this needs NO Azure credentials at all (no publish profile / no
+# basic auth, which the Web App has locked off).
 #
-# One-time setup:
-#   1. Create the Web App (Linux, Container, B1) in Azure — any placeholder
-#      image is fine; this workflow overwrites it.
-#   2. Azure Portal → your Web App → Overview → "Download publish profile".
-#   3. GitHub repo → Settings → Secrets and variables → Actions → New repository
-#      secret named AZURE_WEBAPP_PUBLISH_PROFILE, paste the whole file contents.
-#   4. Set AZURE_WEBAPP_NAME below to the exact name of your Web App.
-#   5. In the Web App → Environment variables, add:
+# ── One-time setup ──────────────────────────────────────────────────────────
+# GitHub secrets (repo → Settings → Secrets and variables → Actions):
+#   DOCKERHUB_USERNAME   your Docker Hub username (saikrishnakompelly0509)
+#   DOCKERHUB_TOKEN      a Docker Hub access token (Read & Write)
+#
+# Azure side (portal — no credentials needed here):
+#   1. Web App → Deployment Center → Settings:
+#        Source = Container Registry, Registry = Docker Hub (public),
+#        Image = <DOCKERHUB_USERNAME>/bilvantis-llm-api, Tag = latest,
+#        Continuous deployment = On → Save.
+#   2. Copy the "Webhook URL" it shows, then Docker Hub → the repo →
+#        Webhooks → add that URL. Now each push to Docker Hub redeploys Azure.
+#   3. After the first push, make the Docker Hub repo `bilvantis-llm-api` PUBLIC
+#        (Docker Hub → repo → Settings → Make public).
+#   4. Web App → Environment variables:
 #        WEBSITES_PORT=3001
 #        ENCRYPTION_KEY=<64-hex>
 #        BILVANTIS_DB_PATH=/home/data/bilvantis.db
 #        WEBSITES_ENABLE_APP_SERVICE_STORAGE=true
-name: Deploy to Azure Web App
+name: Build and push image
 
 on:
   push:
     branches: [main]
   workflow_dispatch: {}
 
-env:
-  # 👇 CHANGE THIS to your Web App's exact name (from the Azure portal).
-  AZURE_WEBAPP_NAME: bilvantis-llm-api
-  IMAGE: ghcr.io/${{ github.repository_owner }}/bilvantis-llm-api
-
-permissions:
-  contents: read
-  packages: write
-
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to GitHub Container Registry
+      - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # App Service Linux is x86_64, so a single amd64 image is all we need.
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.sha }}
-
-      - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
-        with:
-          app-name: ${{ env.AZURE_WEBAPP_NAME }}
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          images: ${{ env.IMAGE }}:${{ github.sha }}
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/bilvantis-llm-api:latest
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/bilvantis-llm-api:${{ github.sha }}
