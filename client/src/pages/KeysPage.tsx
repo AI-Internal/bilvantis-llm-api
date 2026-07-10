@@ -1069,7 +1069,7 @@ export default function KeysPage() {
                   type="button"
                   onClick={() => setTab(tb.id)}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-colors ${
-                    tab === tb.id ? 'bg-foreground text-background font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                    tab === tb.id ? 'bg-primary text-primary-foreground font-medium' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                   }`}
                 >
                   {t(tb.labelKey)}
