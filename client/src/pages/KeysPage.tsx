@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { PageHeader } from '@/components/page-header'
 import type { ApiKey, ApiKeyModel, ImportKey, ImportSelectedResponse, Platform, PreviewKey, PreviewResponse, ProviderQuotaState } from '../../../shared/types'
-import { ChevronDown, Pencil, ExternalLink, Globe, Trash2, Upload } from 'lucide-react'
+import { ChevronDown, Pencil, ExternalLink, Globe, Trash2, Upload, Download } from 'lucide-react'
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
@@ -1029,6 +1029,21 @@ export default function KeysPage() {
     keys: keys.filter(k => k.platform === p.value),
   })).filter(p => p.keys.length > 0)
 
+  // Download this user's configured provider keys (decrypted) as a JSON file.
+  // apiFetch carries the dashboard bearer token; a plain <a href> could not.
+  async function exportKeys() {
+    const data = await apiFetch<unknown>('/api/keys/export')
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `bilvantis-keys-${new Date().toISOString().slice(0, 10)}.json`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div>
       <PageHeader
@@ -1039,6 +1054,12 @@ export default function KeysPage() {
             {(tab === 'providers' || tab === 'quotaSignals') && keys.length > 0 && (
               <Button variant="outline" size="sm" onClick={() => checkAll.mutate()} disabled={checkAll.isPending}>
                 {checkAll.isPending ? t('keys.checking') : t('keys.checkAll')}
+              </Button>
+            )}
+            {keys.length > 0 && (
+              <Button variant="outline" size="sm" onClick={exportKeys}>
+                <Download className="size-3.5" />
+                {t('keys.export')}
               </Button>
             )}
             <div className="inline-flex gap-1 rounded-xl border p-1">

@@ -123,6 +123,34 @@ function insertImportedKey(userId: number, platform: (typeof PLATFORMS)[number],
   `).run(platform, keyName, encrypted, iv, authTag, userId);
 }
 
+// Export the caller's configured provider keys (decrypted) as JSON, so they can
+// back them up or load them into another instance / tool. Owner-scoped: only
+// this user's own keys, and only behind a dashboard session (requireAuth gates
+// the whole router). Keys that fail to decrypt are skipped rather than exported
+// as garbage.
+keysRouter.get('/export', (req: Request, res: Response) => {
+  const db = getDb();
+  const rows = db.prepare(
+    'SELECT platform, label, encrypted_key, iv, auth_tag, base_url, enabled FROM api_keys WHERE user_id = ? ORDER BY platform, created_at',
+  ).all(uid(req)) as any[];
+  const keys = rows.flatMap((r) => {
+    let key: string;
+    try {
+      key = decrypt(r.encrypted_key, r.iv, r.auth_tag);
+    } catch {
+      return [];
+    }
+    return [{
+      platform: r.platform,
+      label: r.label || undefined,
+      key,
+      baseUrl: r.base_url || undefined,
+      enabled: r.enabled === 1,
+    }];
+  });
+  res.json({ exportedAt: new Date().toISOString(), count: keys.length, keys });
+});
+
 // List all keys (masked)
 keysRouter.get('/', (req: Request, res: Response) => {
   const db = getDb();

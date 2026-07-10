@@ -69,6 +69,18 @@ describe('multi-tenant isolation', () => {
     expect(memberKeys.body.length).toBe(0);
   });
 
+  it('exports only the caller\'s own keys, decrypted', async () => {
+    // Admin added a groq key in the previous test; export returns it in the clear.
+    const adminExport = await http(app, 'GET', '/api/keys/export', undefined, adminToken);
+    expect(adminExport.status).toBe(200);
+    expect(adminExport.body.keys.some((k: any) => k.platform === 'groq' && k.key === 'gsk_admin_secret')).toBe(true);
+    // The member has no keys, so their export is empty — never the admin's.
+    const memberExport = await http(app, 'GET', '/api/keys/export', undefined, memberToken);
+    expect(memberExport.status).toBe(200);
+    expect(memberExport.body.count).toBe(0);
+    expect(memberExport.body.keys.length).toBe(0);
+  });
+
   it('lets each user manage only their own keys (delete is owner-scoped)', async () => {
     const add = await http(app, 'POST', '/api/keys', { platform: 'cerebras', label: 'a', key: 'csk_admin' }, adminToken);
     const keyId = add.body.id;

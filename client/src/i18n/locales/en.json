@@ -280,6 +280,7 @@
     "deleteKeyConfirm": "Delete this key? This cannot be undone.",
     "checkAll": "Check all",
     "checking": "Checking…",
+    "export": "Export",
     "editLabel": "Edit label",
     "saveLabel": "Save label",
     "unifiedKeyDescBefore": "Use this as your OpenAI ",
