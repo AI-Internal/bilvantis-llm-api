@@ -88,8 +88,8 @@ function useDarkMode() {
 function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2 transition-opacity hover:opacity-70">
-      <span className="inline-block size-2 rounded-full bg-foreground" />
-      <span className="font-semibold tracking-tight text-sm">BilvantisLLM-API</span>
+      <img src="/bilvantis-logo.png" alt="Bilvantis" className="h-6 w-auto" />
+      <span className="font-semibold tracking-tight text-sm text-primary">Gateway</span>
     </Link>
   )
 }
