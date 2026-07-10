@@ -58,8 +58,8 @@ function AuthForm({ initialMode, firstAccount, allowedDomains, onAuthed }: { ini
   return (
     <Centered>
       <div className="mb-6 flex items-center gap-2">
-        <img src="/bilvantis-logo.png" alt="Bilvantis" className="h-7 w-auto" />
-        <span className="font-semibold tracking-tight text-base text-primary">Gateway</span>
+        <img src="/bilvantis-logo.png" alt="Bilvantis" className="h-9 w-auto" />
+        <span className="font-semibold tracking-tight text-lg leading-none text-primary">Gateway</span>
       </div>
       <div className="rounded-3xl border bg-card p-6">
         <h1 className="text-base font-medium">{heading}</h1>

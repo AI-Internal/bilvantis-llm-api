@@ -15,4 +15,5 @@ update-hermes.sh
 
 # Monetization planning — private, never committed
 monetization/
-image.png
+/image.png
+/favicon.png

@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-  <!-- Bilvantis Gateway mark: two overlapping rings in Bilvantis blue + cyan. -->
-  <rect width="64" height="64" rx="14" fill="#ffffff"/>
-  <circle cx="25" cy="37" r="12" fill="none" stroke="#1668b3" stroke-width="6"/>
-  <circle cx="38" cy="27" r="12" fill="none" stroke="#35a8e0" stroke-width="6"/>
-</svg>
