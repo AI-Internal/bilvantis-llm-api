@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { getDb } from '../db/index.js';
 import { hashPassword, verifyPassword } from '../lib/password.js';
+import { provisionFreeDefaults } from './free-defaults.js';
 
 // Dashboard authentication: email + password accounts with opaque session
 // tokens. Distinct from a user's proxy key, which authenticates the /v1 proxy
@@ -87,7 +88,11 @@ export function createUser(email: string, password: string, role: Role = 'member
   const result = db
     .prepare('INSERT INTO users (email, password_hash, role, proxy_key) VALUES (?, ?, ?, ?)')
     .run(normalized, hashPassword(password), effectiveRole, newProxyKey());
-  return { userId: Number(result.lastInsertRowid), email: normalized, role: effectiveRole };
+  const userId = Number(result.lastInsertRowid);
+  // Zero-setup onboarding: give the new user the keyless free providers so
+  // models work immediately (no-op when DISABLE_FREE_DEFAULTS=1).
+  provisionFreeDefaults(db, userId);
+  return { userId, email: normalized, role: effectiveRole };
 }
 
 /** Verify credentials. Returns the user on success, null on failure. */

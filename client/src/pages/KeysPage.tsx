@@ -14,6 +14,33 @@ import { ChevronDown, Pencil, ExternalLink, Globe, Trash2, Upload, Download } fr
 import { formatSqliteUtcToLocalTime } from '@/lib/utils'
 import { useI18n } from '@/i18n'
 
+// ── OpenRouter OAuth (PKCE) ──────────────────────────────────────────────────
+// "Connect OpenRouter" runs OpenRouter's PKCE flow: we build a code_verifier +
+// challenge, redirect to openrouter.ai, and on return the server exchanges the
+// code for a key (keeping it out of the browser). See routes/keys.ts.
+const OPENROUTER_VERIFIER_KEY = 'openrouter_pkce_verifier'
+
+function base64url(bytes: Uint8Array): string {
+  let s = ''
+  for (const b of bytes) s += String.fromCharCode(b)
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+async function makePkce(): Promise<{ verifier: string; challenge: string }> {
+  const verifier = base64url(crypto.getRandomValues(new Uint8Array(48)))
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+  return { verifier, challenge: base64url(new Uint8Array(digest)) }
+}
+
+async function startOpenRouterConnect() {
+  const { verifier, challenge } = await makePkce()
+  sessionStorage.setItem(OPENROUTER_VERIFIER_KEY, verifier)
+  const callback = `${window.location.origin}/keys`
+  window.location.href =
+    `https://openrouter.ai/auth?callback_url=${encodeURIComponent(callback)}` +
+    `&code_challenge=${challenge}&code_challenge_method=S256`
+}
+
 // Claude (Anthropic) model families the mapping editor exposes. Anthropic
 // clients send these names; each maps to "auto" (router picks a free model) or
 // a pinned catalog model. Mirrors services/anthropic-map.ts on the server.
@@ -935,6 +962,24 @@ export default function KeysPage() {
     queryFn: () => apiFetch('/api/keys'),
   })
 
+  // OpenRouter OAuth return: when openrouter.ai redirects back to /keys?code=…,
+  // exchange the code (server-side) for a key on this account, then clean the URL.
+  const [openRouterMsg, setOpenRouterMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('code')
+    const verifier = sessionStorage.getItem(OPENROUTER_VERIFIER_KEY)
+    if (!code || !verifier) return
+    sessionStorage.removeItem(OPENROUTER_VERIFIER_KEY)
+    window.history.replaceState({}, '', window.location.pathname) // avoid re-running on refresh
+    apiFetch('/api/keys/openrouter/oauth', { method: 'POST', body: JSON.stringify({ code, codeVerifier: verifier }) })
+      .then(() => {
+        setOpenRouterMsg({ ok: true, text: t('keys.openRouterConnected') })
+        queryClient.invalidateQueries({ queryKey: ['keys'] })
+      })
+      .catch((err) => setOpenRouterMsg({ ok: false, text: (err as Error).message }))
+  }, [])
+
   const { data: healthData } = useQuery<HealthData>({
     queryKey: ['health'],
     queryFn: () => apiFetch('/api/health'),
@@ -1154,6 +1199,18 @@ export default function KeysPage() {
 
         {tab === 'providers' && (
         <>
+        {/* Onboarding hint: a fresh account only has the keyless free defaults
+            (no real provider key yet). Nudge them to connect OpenRouter or add
+            a key for more/faster models — skippable, it's just a hint. */}
+        {!keys.some(k => k.platform !== 'custom' && !(PLATFORMS.find(p => p.value === k.platform)?.keyless)) && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-dashed bg-muted/40 px-4 py-3">
+            <p className="text-xs text-muted-foreground">{t('keys.onboardingHint')}</p>
+            <Button type="button" variant="outline" size="sm" onClick={() => { void startOpenRouterConnect() }}>
+              {t('keys.connectOpenRouter')}
+            </Button>
+          </div>
+        )}
+
         <ImportKeysSection />
 
         <section>
@@ -1175,6 +1232,15 @@ export default function KeysPage() {
                 const sel = PLATFORMS.find(p => p.value === platform)
                 return sel?.url ? <div className="pt-0.5"><GetKeyLink url={sel.url} /></div> : null
               })()}
+              {platform === 'openrouter' && (
+                <button
+                  type="button"
+                  onClick={() => { void startOpenRouterConnect() }}
+                  className="pt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  {t('keys.connectOpenRouter')}
+                </button>
+              )}
             </div>
             {needsAccountId && (
               <div className="space-y-1.5">
@@ -1220,6 +1286,9 @@ export default function KeysPage() {
           </form>
           {addKey.isError && (
             <p className="text-destructive text-xs mt-2">{(addKey.error as Error).message}</p>
+          )}
+          {openRouterMsg && (
+            <p className={`text-xs mt-2 ${openRouterMsg.ok ? 'text-emerald-600' : 'text-destructive'}`}>{openRouterMsg.text}</p>
           )}
         </section>
 

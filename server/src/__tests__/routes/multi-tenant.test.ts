@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { Express } from 'express';
 import { createApp } from '../../app.js';
 import { initDb } from '../../db/index.js';
@@ -31,6 +31,9 @@ describe('multi-tenant isolation', () => {
 
   beforeAll(async () => {
     process.env.ENCRYPTION_KEY = '0'.repeat(64);
+    // Keep a clean baseline: these isolation tests assert members start with 0
+    // keys / 0 budget, so disable the keyless free-default provisioning here.
+    process.env.DISABLE_FREE_DEFAULTS = '1';
     initDb(':memory:');
     app = createApp();
 
@@ -49,6 +52,8 @@ describe('multi-tenant isolation', () => {
     expect(login.status).toBe(200);
     memberToken = login.body.token;
   });
+
+  afterAll(() => { delete process.env.DISABLE_FREE_DEFAULTS; });
 
   it('gives each user a distinct proxy key', async () => {
     const a = await http(app, 'GET', '/api/settings/api-key', undefined, adminToken);

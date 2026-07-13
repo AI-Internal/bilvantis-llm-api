@@ -220,6 +220,60 @@ keysRouter.get('/', (req: Request, res: Response) => {
   res.json(keys);
 });
 
+// OpenRouter OAuth (PKCE) code exchange. The dashboard runs the PKCE redirect
+// to openrouter.ai; here we swap the returned `code` for an API key server-side
+// (so the key never touches the browser) and store it as the CALLER's own
+// OpenRouter key. This is the "Connect OpenRouter" one-click alternative to
+// pasting a key. See https://openrouter.ai/docs/use-cases/oauth-pkce.
+const openrouterOauthSchema = z.object({
+  code: z.string().min(1),
+  codeVerifier: z.string().min(1),
+});
+
+keysRouter.post('/openrouter/oauth', async (req: Request, res: Response) => {
+  const parsed = openrouterOauthSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
+    return;
+  }
+
+  let key: string;
+  try {
+    const r = await fetch('https://openrouter.ai/api/v1/auth/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: parsed.data.code,
+        code_verifier: parsed.data.codeVerifier,
+        code_challenge_method: 'S256',
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const body = (await r.json().catch(() => ({}))) as { key?: string; error?: string; message?: string };
+    if (!r.ok || !body.key) {
+      res.status(502).json({ error: { message: body.error ?? body.message ?? 'OpenRouter did not return a key. Try connecting again.' } });
+      return;
+    }
+    key = body.key;
+  } catch {
+    res.status(502).json({ error: { message: 'Could not reach OpenRouter to complete the connection.' } });
+    return;
+  }
+
+  const db = getDb();
+  const { encrypted, iv, authTag } = encrypt(key);
+  const existing = db.prepare("SELECT id FROM api_keys WHERE platform = 'openrouter' AND user_id = ? LIMIT 1").get(uid(req)) as { id: number } | undefined;
+  if (existing) {
+    db.prepare("UPDATE api_keys SET encrypted_key = ?, iv = ?, auth_tag = ?, status = 'unknown', enabled = 1 WHERE id = ?")
+      .run(encrypted, iv, authTag, existing.id);
+  } else {
+    db.prepare(`INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, user_id)
+                VALUES ('openrouter', 'OpenRouter (connected)', ?, ?, ?, 'unknown', 1, ?)`)
+      .run(encrypted, iv, authTag, uid(req));
+  }
+  res.status(201).json({ success: true, platform: 'openrouter', maskedKey: maskKey(key) });
+});
+
 // Add a key
 keysRouter.post('/', (req: Request, res: Response) => {
   const parsed = addKeySchema.safeParse(req.body);

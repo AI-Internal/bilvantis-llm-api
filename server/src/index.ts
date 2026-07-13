@@ -9,6 +9,7 @@ import { NodeScheduler } from './lib/scheduler.js';
 import { loadConfig } from './lib/config.js';
 import { applyDeclarativeConfigFromEnv } from './services/declarative-config.js';
 import { restoreDbBackupIfNeeded, startDbBackupPump } from './lib/db-backup.js';
+import { backfillFreeDefaultsOnce } from './services/free-defaults.js';
 
 async function main() {
   const config = loadConfig();
@@ -27,6 +28,8 @@ async function main() {
   }
   initDb(config.dbPath ?? undefined);
   applyDeclarativeConfigFromEnv();
+  // One-time: give pre-existing accounts the keyless free providers too.
+  backfillFreeDefaultsOnce();
 
   // Load the persisted proxy settings from the DB (env var wins if set).
   // Must happen after initDb so the settings table is ready.
