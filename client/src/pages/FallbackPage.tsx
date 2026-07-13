@@ -20,6 +20,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { ChevronDown, SlidersHorizontal, Search, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useI18n } from '@/i18n'
+import { useIsAdmin } from '@/lib/use-admin'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/copy-button'
@@ -696,6 +697,7 @@ export default function FallbackPage() {
   const { t } = useI18n()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const isAdmin = useIsAdmin()
   const [localEntries, setLocalEntries] = useState<FallbackEntry[] | null>(null)
 
   // Catalog search + filter state (#343).
@@ -786,7 +788,7 @@ export default function FallbackPage() {
     }
     return true
   })
-  const draggable = isManual && !filtersActive
+  const draggable = isManual && !filtersActive && isAdmin
   function clearFilters() {
     setSearch('')
     setFilterVision(false)
@@ -795,6 +797,7 @@ export default function FallbackPage() {
   }
 
   function handleGroupToggle(memberIds: number[], enabled: boolean) {
+    if (!isAdmin) return // shared routing config is admin-managed
     const ids = new Set(memberIds)
     setLocalEntries(allEntries.map(e => (ids.has(e.modelDbId) ? { ...e, enabled } : e)))
   }
@@ -830,6 +833,12 @@ export default function FallbackPage() {
       />
 
       <div className="space-y-6">
+        {!isAdmin && (
+          <div className="rounded-2xl border border-dashed bg-muted/40 px-4 py-3 text-xs text-muted-foreground">
+            {t('strategies.readOnlyNotice')}
+          </div>
+        )}
+
         {/* Monthly token budget — moved to the top */}
         {tokenUsage && tokenUsage.totalBudget > 0 && <TokenUsageBar data={tokenUsage} />}
 
@@ -852,9 +861,9 @@ export default function FallbackPage() {
             {STRATEGIES.map(s => (
               <Tooltip key={s.key} text={t(`strategies.${s.tKey}Blurb`)}>
                 <button
-                  disabled={strategyMutation.isPending}
+                  disabled={strategyMutation.isPending || !isAdmin}
                   onClick={() => strategyMutation.mutate({ strategy: s.key })}
-                  className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
+                  className={`px-3 py-1.5 text-xs rounded-lg transition-colors disabled:cursor-not-allowed ${
                     s.key === strategy
                       ? 'bg-primary text-primary-foreground font-medium'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted'
@@ -993,7 +1002,7 @@ export default function FallbackPage() {
             <FloatingBar show={hasChanges}>
               <span className="text-xs text-muted-foreground">{t('common.unsavedChanges')}</span>
               <Button variant="outline" size="sm" onClick={() => setLocalEntries(null)}>{t('common.discard')}</Button>
-              <Button size="sm" onClick={handleSave} disabled={saveMutation.isPending}>
+              <Button size="sm" onClick={handleSave} disabled={saveMutation.isPending || !isAdmin}>
                 {saveMutation.isPending ? t('common.saving') : t('common.saveChanges')}
               </Button>
             </FloatingBar>

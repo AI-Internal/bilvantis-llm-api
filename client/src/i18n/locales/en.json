@@ -163,6 +163,7 @@
   },
   "strategies": {
     "title": "Routing strategy",
+    "readOnlyNotice": "Shared routing is managed by your admin. You can view it here, but changes are read-only for members.",
     "description": "Pick a routing strategy. In Manual mode you drag to set the order; the other strategies route by live score across reliability, speed and intelligence.",
     "weightsSummary": "reliability {reliability}% · speed {speed}% · intelligence {intelligence}%",
     "guardrails": "Guardrails",
