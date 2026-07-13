@@ -31,6 +31,7 @@ import MediaDetailPage from '@/pages/MediaDetailPage'
 import EmbeddingDetailPage from '@/pages/EmbeddingDetailPage'
 import AnalyticsPage from '@/pages/AnalyticsPage'
 import UsersPage from '@/pages/UsersPage'
+import SsoCallbackPage from '@/pages/SsoCallbackPage'
 
 const queryClient = new QueryClient()
 
@@ -243,33 +244,40 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <I18nProvider>
       <BrowserRouter basename={import.meta.env.BASE_URL}>
-        <AuthGate>
-          <div className={`min-h-screen ${isDesktopApp ? 'desktop-backdrop' : 'bg-background'}`}>
-            <Navbar />
-            <main className="max-w-6xl mx-auto px-6 py-8">
-              <Routes>
-                <Route path="/" element={<Navigate to="/models/chat" replace />} />
-                <Route path="/models" element={<Navigate to="/models/chat" replace />} />
-                <Route path="/models/chat" element={<FallbackPage />} />
-                <Route path="/models/chat/:id" element={<ModelDetailPage />} />
-                <Route path="/models/fusion" element={<FusionPage />} />
-                <Route path="/models/embeddings" element={<EmbeddingsPage />} />
-                <Route path="/models/embeddings/:id" element={<EmbeddingDetailPage />} />
-                <Route path="/models/image" element={<ImagePage />} />
-                <Route path="/models/image/:id" element={<MediaDetailPage modality="image" />} />
-                <Route path="/models/audio" element={<AudioPage />} />
-                <Route path="/models/audio/:id" element={<MediaDetailPage modality="audio" />} />
-                <Route path="/playground" element={<PlaygroundPage />} />
-                <Route path="/keys" element={<KeysPage />} />
-                <Route path="/fallback" element={<Navigate to="/models/chat" replace />} />
-                <Route path="/analytics" element={<AnalyticsPage />} />
-                <Route path="/users" element={<UsersPage />} />
-                <Route path="/test" element={<Navigate to="/playground" replace />} />
-                <Route path="/health" element={<Navigate to="/keys" replace />} />
-              </Routes>
-            </main>
-          </div>
-        </AuthGate>
+        <Routes>
+          {/* Reachable pre-login: lands here straight from the Microsoft
+              redirect, before AuthGate has a session to authenticate. */}
+          <Route path="/auth/callback" element={<SsoCallbackPage />} />
+          <Route path="/*" element={
+            <AuthGate>
+              <div className={`min-h-screen ${isDesktopApp ? 'desktop-backdrop' : 'bg-background'}`}>
+                <Navbar />
+                <main className="max-w-6xl mx-auto px-6 py-8">
+                  <Routes>
+                    <Route path="/" element={<Navigate to="/models/chat" replace />} />
+                    <Route path="/models" element={<Navigate to="/models/chat" replace />} />
+                    <Route path="/models/chat" element={<FallbackPage />} />
+                    <Route path="/models/chat/:id" element={<ModelDetailPage />} />
+                    <Route path="/models/fusion" element={<FusionPage />} />
+                    <Route path="/models/embeddings" element={<EmbeddingsPage />} />
+                    <Route path="/models/embeddings/:id" element={<EmbeddingDetailPage />} />
+                    <Route path="/models/image" element={<ImagePage />} />
+                    <Route path="/models/image/:id" element={<MediaDetailPage modality="image" />} />
+                    <Route path="/models/audio" element={<AudioPage />} />
+                    <Route path="/models/audio/:id" element={<MediaDetailPage modality="audio" />} />
+                    <Route path="/playground" element={<PlaygroundPage />} />
+                    <Route path="/keys" element={<KeysPage />} />
+                    <Route path="/fallback" element={<Navigate to="/models/chat" replace />} />
+                    <Route path="/analytics" element={<AnalyticsPage />} />
+                    <Route path="/users" element={<UsersPage />} />
+                    <Route path="/test" element={<Navigate to="/playground" replace />} />
+                    <Route path="/health" element={<Navigate to="/keys" replace />} />
+                  </Routes>
+                </main>
+              </div>
+            </AuthGate>
+          } />
+        </Routes>
       </BrowserRouter>
       </I18nProvider>
     </QueryClientProvider>

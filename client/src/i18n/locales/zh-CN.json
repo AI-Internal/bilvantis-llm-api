@@ -30,7 +30,12 @@
     "newPasswordAutoComplete": "new-password",
     "currentPasswordAutoComplete": "current-password",
     "serverUnreachableBefore": "无法连接到服务器。请确认后端正在运行（",
-    "serverUnreachableAfter": "）。"
+    "serverUnreachableAfter": "）。",
+    "signInWithMicrosoft": "使用 Microsoft 登录",
+    "orDivider": "或",
+    "ssoCompleting": "正在登录…",
+    "ssoFailed": "登录失败，请重试。",
+    "backToSignIn": "返回登录"
   },
   "common": {
     "save": "保存",

@@ -11,6 +11,7 @@ import {
   isAllowedEmailDomain,
   allowedEmailDomains,
 } from '../services/auth.js';
+import { ssoEnabled } from '../services/sso.js';
 
 export const authRouter = Router();
 
@@ -79,6 +80,8 @@ authRouter.get('/status', (req: Request, res: Response) => {
     role: session?.role ?? null,
     // Lets the auth page show which email domains registration accepts.
     allowedEmailDomains: allowedEmailDomains(),
+    // Lets the auth page show/hide the "Sign in with Microsoft" button.
+    ssoEnabled: ssoEnabled(),
   });
 });
 

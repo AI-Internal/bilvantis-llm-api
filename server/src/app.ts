@@ -16,6 +16,7 @@ import { analyticsRouter } from './routes/analytics.js';
 import { healthRouter } from './routes/health.js';
 import { settingsRouter } from './routes/settings.js';
 import { authRouter } from './routes/auth.js';
+import { ssoRouter } from './routes/sso.js';
 import { usersRouter } from './routes/users.js';
 import { requireAuth } from './middleware/requireAuth.js';
 import { requireAdmin } from './middleware/requireAdmin.js';
@@ -35,6 +36,10 @@ const DEFAULT_DASHBOARD_ORIGINS = [
 export function createApp(config?: Config) {
   const cfg = config ?? loadConfig();
   const app = express();
+  // Sits behind Nginx doing TLS termination in production — trust its
+  // X-Forwarded-* headers so req.ip (used by the proxy rate limiter) reflects
+  // the real client, not the reverse proxy.
+  app.set('trust proxy', 1);
   const allowedCorsOrigins = new Set([
     ...DEFAULT_DASHBOARD_ORIGINS,
     ...cfg.dashboardOrigins,
@@ -61,6 +66,8 @@ export function createApp(config?: Config) {
   // session; everything else under /api/* requires a logged-in dashboard user.
   // The /v1 proxy keeps its own unified-API-key auth and is NOT gated here.
   app.use('/api/auth', authRouter);
+  // Microsoft Entra ID SSO — 404s unless SSO_ENABLED=true (see routes/sso.ts).
+  app.use('/api/auth/sso', ssoRouter);
 
   // API routes — all admin endpoints sit behind requireAuth.
   app.use('/api/keys', requireAuth, keysRouter);

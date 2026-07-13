@@ -5,6 +5,7 @@ import * as catalogModelState from '../migrations/20260627_000002_catalog_model_
 import * as requestAggregates from '../migrations/20260628_120000_request_aggregates.js';
 import * as githubGpt41Context from '../migrations/20260630_000001_github_gpt41_context.js';
 import * as multiTenant from '../migrations/20260703_000001_multi_tenant.js';
+import * as ssoUsers from '../migrations/20260713_000001_sso_users.js';
 
 export interface MigrationModule {
   up(db: Database.Database): void;
@@ -22,6 +23,7 @@ export const CATALOG_MODEL_STATE_FILENAME = '20260627_000002_catalog_model_state
 export const REQUEST_AGGREGATES_FILENAME = '20260628_120000_request_aggregates.ts';
 export const GITHUB_GPT41_CONTEXT_FILENAME = '20260630_000001_github_gpt41_context.ts';
 export const MULTI_TENANT_FILENAME = '20260703_000001_multi_tenant.ts';
+export const SSO_USERS_FILENAME = '20260713_000001_sso_users.ts';
 
 export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: LEGACY_BASELINE_FILENAME, module: legacyBaseline },
@@ -30,4 +32,5 @@ export const DEFAULT_MIGRATIONS: readonly DefaultMigration[] = [
   { filename: REQUEST_AGGREGATES_FILENAME, module: requestAggregates },
   { filename: GITHUB_GPT41_CONTEXT_FILENAME, module: githubGpt41Context },
   { filename: MULTI_TENANT_FILENAME, module: multiTenant },
+  { filename: SSO_USERS_FILENAME, module: ssoUsers },
 ];
