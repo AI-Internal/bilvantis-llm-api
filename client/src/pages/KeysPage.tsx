@@ -788,6 +788,12 @@ function AnthropicSection() {
     queryFn: () => apiFetch('/api/fallback'),
   })
 
+  // Reuses the same query the API-key tab populates, so no extra request.
+  const { data: keyData } = useQuery<{ apiKey: string }>({
+    queryKey: ['unified-key'],
+    queryFn: () => apiFetch('/api/settings/api-key'),
+  })
+
   const [draft, setDraft] = useState<AnthropicMap | null>(null)
   useEffect(() => { if (mapData?.map) setDraft(mapData.map) }, [mapData])
 
@@ -800,6 +806,33 @@ function AnthropicSection() {
   const modelOptions = Array.from(new Map(models.filter(m => m.enabled).map(m => [m.modelId, m])).values())
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
   const dirty = !!(draft && mapData?.map && JSON.stringify(draft) !== JSON.stringify(mapData.map))
+
+  // A ready-to-use Claude Code settings.json: point ANTHROPIC_BASE_URL at this
+  // server and authenticate with the user's own proxy key (Bearer; the proxy
+  // also accepts x-api-key). Drop it at ~/.claude/settings.json.
+  const [copied, setCopied] = useState(false)
+  const settingsJson = JSON.stringify({
+    env: {
+      ANTHROPIC_BASE_URL: origin,
+      ANTHROPIC_AUTH_TOKEN: keyData?.apiKey ?? 'bilvantisllmapi-YOUR-KEY',
+    },
+  }, null, 2)
+  function copySettings() {
+    navigator.clipboard.writeText(settingsJson)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  function downloadSettings() {
+    const blob = new Blob([settingsJson + '\n'], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'settings.json'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <section className="rounded-3xl border bg-card p-5">
@@ -818,6 +851,24 @@ function AnthropicSection() {
         <code className="font-mono break-all">{origin}</code>
         <span className="text-muted-foreground">{t('keys.anthropicAuth')}</span>
         <code className="font-mono">x-api-key</code>
+      </div>
+
+      {/* Ready-made Claude Code config. */}
+      <div className="mb-4 rounded-2xl border bg-muted/30 p-3">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span className="text-xs font-medium">{t('keys.claudeCodeTitle')}</span>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={copySettings}>
+              {copied ? t('keys.copiedKey') : t('keys.copyKey')}
+            </Button>
+            <Button variant="outline" size="sm" onClick={downloadSettings}>
+              <Download className="size-3.5" />
+              settings.json
+            </Button>
+          </div>
+        </div>
+        <pre className="text-[11px] leading-relaxed font-mono overflow-x-auto whitespace-pre">{settingsJson}</pre>
+        <p className="text-xs text-muted-foreground mt-2 max-w-prose">{t('keys.claudeCodeHint')}</p>
       </div>
 
       <div className="space-y-2">

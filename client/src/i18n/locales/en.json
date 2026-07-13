@@ -238,6 +238,8 @@
     "anthropicSave": "Save mapping",
     "anthropicSaved": "Saved",
     "anthropicNote": "Anthropic clients keep their built-in Claude model names; the mapping above decides how each one routes into your pool.",
+    "claudeCodeTitle": "Claude Code settings.json",
+    "claudeCodeHint": "Save this to ~/.claude/settings.json (global) or .claude/settings.json in a project, then run `claude`. It points Claude Code at this server with your own key.",
     "familyDefault": "Default",
     "familyOpus": "Opus",
     "familySonnet": "Sonnet",
