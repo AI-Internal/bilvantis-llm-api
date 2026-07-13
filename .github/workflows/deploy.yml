@@ -34,4 +34,14 @@ jobs:
             cd ~/bilvantisllmapi
             git pull
             docker compose up -d --build
-            curl -f http://127.0.0.1:3001/api/ping
+            for i in $(seq 1 10); do
+              if curl -sf http://127.0.0.1:3001/api/ping; then
+                echo "App is healthy"
+                exit 0
+              fi
+              echo "Waiting for app to become healthy... ($i/10)"
+              sleep 3
+            done
+            echo "App did not become healthy in time"
+            docker compose logs --tail=50
+            exit 1
