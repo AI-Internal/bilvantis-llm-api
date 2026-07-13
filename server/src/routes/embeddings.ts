@@ -11,25 +11,41 @@ import {
   EmbeddingsError,
   type EmbeddingModelRow,
 } from '../services/embeddings.js';
+import type { SessionUser } from '../services/auth.js';
 
 export const embeddingsRouter = Router();
 
+// Custom embedding models are private to their key's owner.
+function uid(req: Request): number {
+  return (req as Request & { user?: SessionUser }).user!.userId;
+}
+
 // Families with their provider chains, for the dashboard Embeddings tab.
-embeddingsRouter.get('/', (_req: Request, res: Response) => {
+embeddingsRouter.get('/', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = uid(req);
   const keyCounts = new Map(
     (db.prepare(
-      "SELECT platform, COUNT(*) AS n FROM api_keys WHERE enabled = 1 AND status IN ('healthy', 'unknown') GROUP BY platform",
-    ).all() as { platform: string; n: number }[]).map(r => [r.platform, r.n]),
+      "SELECT platform, COUNT(*) AS n FROM api_keys WHERE enabled = 1 AND status IN ('healthy', 'unknown') AND user_id = ? GROUP BY platform",
+    ).all(userId) as { platform: string; n: number }[]).map(r => [r.platform, r.n]),
   );
+  // The caller's OWN custom keys — used both for keyCount and to hide other
+  // users' custom embedding models below.
   const customKeyIds = new Set(
     (db.prepare(
-      "SELECT id FROM api_keys WHERE platform = 'custom' AND enabled = 1 AND status IN ('healthy', 'unknown')",
-    ).all() as { id: number }[]).map(r => r.id),
+      "SELECT id FROM api_keys WHERE platform = 'custom' AND enabled = 1 AND status IN ('healthy', 'unknown') AND user_id = ?",
+    ).all(userId) as { id: number }[]).map(r => r.id),
+  );
+  // Any custom key owned by the caller (regardless of health) — models bound to
+  // these are theirs; everything else custom belongs to another user and is hidden.
+  const ownCustomKeyIds = new Set(
+    (db.prepare("SELECT id FROM api_keys WHERE platform = 'custom' AND user_id = ?").all(userId) as { id: number }[]).map(r => r.id),
   );
 
   const byFamily = new Map<string, EmbeddingModelRow[]>();
   for (const row of listEmbeddingModels()) {
+    // Hide custom embedding models the caller doesn't own.
+    if (row.platform === 'custom' && row.key_id != null && !ownCustomKeyIds.has(row.key_id)) continue;
     const list = byFamily.get(row.family) ?? [];
     list.push(row);
     byFamily.set(row.family, list);
@@ -88,6 +104,7 @@ embeddingsRouter.post('/custom', async (req: Request, res: Response) => {
   }
 
   const db = getDb();
+  const userId = uid(req);
   const baseUrl = parsed.data.baseUrl.trim().replace(/\/+$/, '');
   const modelId = parsed.data.model.trim();
   if (!modelId) {
@@ -103,9 +120,9 @@ embeddingsRouter.post('/custom', async (req: Request, res: Response) => {
   const existingKey = db.prepare(`
     SELECT id, encrypted_key, iv, auth_tag
       FROM api_keys
-     WHERE platform = 'custom' AND base_url = ?
+     WHERE platform = 'custom' AND base_url = ? AND user_id = ?
      LIMIT 1
-  `).get(baseUrl) as { id: number; encrypted_key: string; iv: string; auth_tag: string } | undefined;
+  `).get(baseUrl, userId) as { id: number; encrypted_key: string; iv: string; auth_tag: string } | undefined;
   const probeKey = providedKey ?? decryptExistingKey(existingKey) ?? 'no-key';
 
   let dimensions: number;
@@ -164,9 +181,9 @@ embeddingsRouter.post('/custom', async (req: Request, res: Response) => {
       const keyToStore = providedKey ?? 'no-key';
       const { encrypted, iv, authTag } = encrypt(keyToStore);
       const key = db.prepare(`
-        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, base_url)
-        VALUES ('custom', ?, ?, ?, ?, 'unknown', 1, ?)
-      `).run(label ?? 'Custom', encrypted, iv, authTag, baseUrl);
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, base_url, user_id)
+        VALUES ('custom', ?, ?, ?, ?, 'unknown', 1, ?, ?)
+      `).run(label ?? 'Custom', encrypted, iv, authTag, baseUrl, userId);
       keyId = Number(key.lastInsertRowid);
       storedKeyForMask = keyToStore;
     }
@@ -267,7 +284,9 @@ embeddingsRouter.delete('/custom/:id', (req: Request, res: Response) => {
 
   const db = getDb();
   const row = db.prepare("SELECT family, key_id FROM embedding_models WHERE id = ? AND platform = 'custom'").get(id) as { family: string; key_id: number | null } | undefined;
-  if (!row) {
+  // Owner check: only the user who owns the bound key may delete it.
+  const owns = row?.key_id != null && db.prepare('SELECT 1 FROM api_keys WHERE id = ? AND user_id = ?').get(row.key_id, uid(req));
+  if (!row || !owns) {
     res.status(404).json({ error: { message: `Unknown custom embedding model ${id}` } });
     return;
   }

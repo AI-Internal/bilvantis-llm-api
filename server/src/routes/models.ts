@@ -10,8 +10,32 @@ import {
   upsertModelOverrides,
   type ModelOverridePatch,
 } from '../services/model-state.js';
+import type { SessionUser } from '../services/auth.js';
 
 export const modelsRouter = Router();
+
+// The dashboard session user (requireAuth gates this router). Custom models are
+// private to the user who owns the key they're bound to; catalog models
+// (key_id IS NULL) are the shared reference catalog visible to everyone.
+function uid(req: Request): number {
+  return (req as Request & { user?: SessionUser }).user!.userId;
+}
+
+// SQL predicate: keep shared catalog rows (key_id NULL) plus the caller's own
+// custom rows; hide every other user's custom models. `alias` is the models
+// table alias in the query.
+function ownedModelsFilter(alias: string): string {
+  return `(${alias}.key_id IS NULL OR ${alias}.key_id IN (SELECT id FROM api_keys WHERE user_id = ?))`;
+}
+
+// A custom model (key_id set) may only be mutated by the user who owns its key,
+// so one user can't edit/delete another's private models. Catalog models
+// (key_id NULL) are shared config and not gated here.
+function mayMutateModel(req: Request, keyId: number | null): boolean {
+  if (keyId == null) return true;
+  const owns = getDb().prepare('SELECT 1 FROM api_keys WHERE id = ? AND user_id = ?').get(keyId, uid(req));
+  return Boolean(owns);
+}
 
 const modelUpdateSchema = z.object({
   displayName: z.string().min(1).max(200).optional(),
@@ -73,7 +97,7 @@ modelsRouter.delete('/custom/:id', (req: Request, res: Response) => {
 
   const db = getDb();
   const row = db.prepare("SELECT id, key_id FROM models WHERE id = ? AND platform = 'custom'").get(id) as { id: number; key_id: number | null } | undefined;
-  if (!row) {
+  if (!row || !mayMutateModel(req, row.key_id)) {
     res.status(404).json({ error: { message: `Unknown custom model ${id}` } });
     return;
   }
@@ -102,7 +126,7 @@ modelsRouter.patch('/:id', (req: Request, res: Response) => {
 
   const db = getDb();
   const row = fetchModelRow(id);
-  if (!row) {
+  if (!row || !mayMutateModel(req, row.key_id)) {
     res.status(404).json({ error: { message: `Unknown model ${id}` } });
     return;
   }
@@ -160,7 +184,7 @@ modelsRouter.delete('/:id', (req: Request, res: Response) => {
 
   const db = getDb();
   const row = fetchModelRow(id);
-  if (!row) {
+  if (!row || !mayMutateModel(req, row.key_id)) {
     res.status(404).json({ error: { message: `Unknown model ${id}` } });
     return;
   }
@@ -179,8 +203,9 @@ modelsRouter.delete('/:id', (req: Request, res: Response) => {
 });
 
 // List all models with availability info
-modelsRouter.get('/', (_req: Request, res: Response) => {
+modelsRouter.get('/', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = uid(req);
   const models = db.prepare(`
     SELECT m.*, fc.priority, fc.enabled as fallback_enabled,
            mo.overrides_json IS NOT NULL AS has_overrides,
@@ -189,16 +214,18 @@ modelsRouter.get('/', (_req: Request, res: Response) => {
     LEFT JOIN fallback_config fc ON fc.model_db_id = m.id
     LEFT JOIN model_overrides mo ON mo.platform = m.platform AND mo.model_id = m.model_id
     LEFT JOIN api_keys ak ON ak.id = m.key_id
+    WHERE ${ownedModelsFilter('m')}
     ORDER BY COALESCE(fc.priority, m.intelligence_rank) ASC
-  `).all() as any[];
+  `).all(userId) as any[];
 
-  // Count keys per platform
+  // Count the caller's OWN keys per platform (availability must reflect this
+  // user's keys, not the whole team's).
   const keyCounts = db.prepare(`
     SELECT platform, COUNT(*) as count
     FROM api_keys
-    WHERE enabled = 1
+    WHERE enabled = 1 AND user_id = ?
     GROUP BY platform
-  `).all() as { platform: string; count: number }[];
+  `).all(userId) as { platform: string; count: number }[];
 
   const keyCountMap = new Map(keyCounts.map(k => [k.platform, k.count]));
 

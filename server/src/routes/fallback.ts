@@ -12,6 +12,13 @@ import { BANDIT_PRESETS, type RoutingStrategy } from '../services/scoring.js';
 import { parseBudget } from '../lib/budget.js';
 import { getModelGroups } from '../services/model-groups.js';
 import { getPenaltyInspector } from '../services/penalty-inspector.js';
+import type { SessionUser } from '../services/auth.js';
+
+// Custom models are private to their key's owner; catalog models (key_id NULL)
+// are the shared reference catalog.
+function uid(req: Request): number {
+  return (req as Request & { user?: SessionUser }).user!.userId;
+}
 
 export const fallbackRouter = Router();
 
@@ -61,8 +68,9 @@ fallbackRouter.put('/routing', (req: Request, res: Response) => {
 });
 
 // Get fallback chain (with dynamic penalties)
-fallbackRouter.get('/', (_req: Request, res: Response) => {
+fallbackRouter.get('/', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = uid(req);
   const rows = db.prepare(`
     SELECT fc.model_db_id, fc.priority, fc.enabled,
            m.platform, m.model_id, m.display_name, m.intelligence_rank,
@@ -76,15 +84,16 @@ fallbackRouter.get('/', (_req: Request, res: Response) => {
     LEFT JOIN api_keys ak ON ak.id = m.key_id
     LEFT JOIN model_overrides mo ON mo.platform = m.platform AND mo.model_id = m.model_id
     WHERE m.enabled = 1
+      AND (m.key_id IS NULL OR m.key_id IN (SELECT id FROM api_keys WHERE user_id = ?))
     ORDER BY fc.priority ASC
-  `).all() as any[];
+  `).all(userId) as any[];
 
-  // Count enabled keys per platform
+  // Count the caller's OWN enabled keys per platform.
   const keyCounts = db.prepare(`
     SELECT platform, COUNT(*) as count
-    FROM api_keys WHERE enabled = 1
+    FROM api_keys WHERE enabled = 1 AND user_id = ?
     GROUP BY platform
-  `).all() as { platform: string; count: number }[];
+  `).all(userId) as { platform: string; count: number }[];
   const keyCountMap = new Map(keyCounts.map(k => [k.platform, k.count]));
 
   // Get current dynamic penalties

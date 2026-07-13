@@ -81,6 +81,30 @@ describe('multi-tenant isolation', () => {
     expect(memberExport.body.keys.length).toBe(0);
   });
 
+  it('keeps custom models private to their owner across the dashboard', async () => {
+    // Admin registers a custom OpenAI-compatible provider + chat model.
+    const add = await http(app, 'POST', '/api/keys/custom', {
+      baseUrl: 'https://admin-endpoint.example/v1',
+      model: 'admin-custom-model',
+      label: 'admin custom',
+    }, adminToken);
+    expect(add.status).toBe(201);
+
+    // Admin sees it on the Models page; the member never does.
+    const adminModels = await http(app, 'GET', '/api/models', undefined, adminToken);
+    expect(adminModels.body.some((m: any) => m.modelId === 'admin-custom-model')).toBe(true);
+    const memberModels = await http(app, 'GET', '/api/models', undefined, memberToken);
+    expect(memberModels.body.some((m: any) => m.modelId === 'admin-custom-model')).toBe(false);
+
+    // The member also can't delete the admin's custom model (reads as not-found).
+    const modelId = adminModels.body.find((m: any) => m.modelId === 'admin-custom-model').id;
+    const memberDelete = await http(app, 'DELETE', `/api/models/${modelId}`, undefined, memberToken);
+    expect(memberDelete.status).toBe(404);
+    // Admin still has it.
+    const stillThere = await http(app, 'GET', '/api/models', undefined, adminToken);
+    expect(stillThere.body.some((m: any) => m.id === modelId)).toBe(true);
+  });
+
   it('lets each user manage only their own keys (delete is owner-scoped)', async () => {
     const add = await http(app, 'POST', '/api/keys', { platform: 'cerebras', label: 'a', key: 'csk_admin' }, adminToken);
     const keyId = add.body.id;

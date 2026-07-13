@@ -5,27 +5,40 @@ import { getDb } from '../db/index.js';
 import { encrypt, decrypt, maskKey } from '../lib/crypto.js';
 import { deleteUnusedCustomEndpointKey } from '../lib/custom-provider-cleanup.js';
 import { listAllMediaModels } from '../services/media.js';
+import type { SessionUser } from '../services/auth.js';
 
 export const mediaRouter = Router();
+
+// Custom media models are private to their key's owner.
+function uid(req: Request): number {
+  return (req as Request & { user?: SessionUser }).user!.userId;
+}
 
 // Generative-media models (image + audio/TTS) for the dashboard Image/Audio tabs.
 // Mirrors the embeddings tab: a flat list with an enable toggle per row. keyCount
 // surfaces whether the row's platform has a usable key configured.
-mediaRouter.get('/', (_req: Request, res: Response) => {
+mediaRouter.get('/', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = uid(req);
   const keyCounts = new Map(
     (db.prepare(
-      "SELECT platform, COUNT(*) AS n FROM api_keys WHERE enabled = 1 AND status IN ('healthy', 'unknown') GROUP BY platform",
-    ).all() as { platform: string; n: number }[]).map(r => [r.platform, r.n]),
+      "SELECT platform, COUNT(*) AS n FROM api_keys WHERE enabled = 1 AND status IN ('healthy', 'unknown') AND user_id = ? GROUP BY platform",
+    ).all(userId) as { platform: string; n: number }[]).map(r => [r.platform, r.n]),
   );
   const customKeyIds = new Set(
     (db.prepare(
-      "SELECT id FROM api_keys WHERE platform = 'custom' AND enabled = 1 AND status IN ('healthy', 'unknown')",
-    ).all() as { id: number }[]).map(r => r.id),
+      "SELECT id FROM api_keys WHERE platform = 'custom' AND enabled = 1 AND status IN ('healthy', 'unknown') AND user_id = ?",
+    ).all(userId) as { id: number }[]).map(r => r.id),
+  );
+  // Custom media models the caller doesn't own are hidden entirely.
+  const ownCustomKeyIds = new Set(
+    (db.prepare("SELECT id FROM api_keys WHERE platform = 'custom' AND user_id = ?").all(userId) as { id: number }[]).map(r => r.id),
   );
 
   res.json({
-    models: listAllMediaModels().map(r => ({
+    models: listAllMediaModels()
+      .filter(r => !(r.platform === 'custom' && r.key_id != null && !ownCustomKeyIds.has(r.key_id)))
+      .map(r => ({
       id: r.id,
       platform: r.platform,
       modelId: r.model_id,
@@ -59,6 +72,7 @@ mediaRouter.post('/custom', (req: Request, res: Response) => {
   }
 
   const db = getDb();
+  const userId = uid(req);
   const baseUrl = parsed.data.baseUrl.trim().replace(/\/+$/, '');
   const modelId = parsed.data.model.trim();
   if (!modelId) {
@@ -74,9 +88,9 @@ mediaRouter.post('/custom', (req: Request, res: Response) => {
     const existingKey = db.prepare(`
       SELECT id, encrypted_key, iv, auth_tag
         FROM api_keys
-       WHERE platform = 'custom' AND base_url = ?
+       WHERE platform = 'custom' AND base_url = ? AND user_id = ?
        LIMIT 1
-    `).get(baseUrl) as { id: number; encrypted_key: string; iv: string; auth_tag: string } | undefined;
+    `).get(baseUrl, userId) as { id: number; encrypted_key: string; iv: string; auth_tag: string } | undefined;
     let keyId: number;
     let storedKeyForMask = providedKey ?? 'no-key';
     if (existingKey) {
@@ -109,9 +123,9 @@ mediaRouter.post('/custom', (req: Request, res: Response) => {
     } else {
       const { encrypted, iv, authTag } = encrypt(providedKey ?? 'no-key');
       const key = db.prepare(`
-        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, base_url)
-        VALUES ('custom', ?, ?, ?, ?, 'unknown', 1, ?)
-      `).run(label ?? 'Custom', encrypted, iv, authTag, baseUrl);
+        INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, base_url, user_id)
+        VALUES ('custom', ?, ?, ?, ?, 'unknown', 1, ?, ?)
+      `).run(label ?? 'Custom', encrypted, iv, authTag, baseUrl, userId);
       keyId = Number(key.lastInsertRowid);
     }
 
@@ -192,7 +206,8 @@ mediaRouter.delete('/custom/:id', (req: Request, res: Response) => {
 
   const db = getDb();
   const row = db.prepare("SELECT key_id FROM media_models WHERE id = ? AND platform = 'custom'").get(id) as { key_id: number | null } | undefined;
-  if (!row) {
+  const owns = row?.key_id != null && db.prepare('SELECT 1 FROM api_keys WHERE id = ? AND user_id = ?').get(row.key_id, uid(req));
+  if (!row || !owns) {
     res.status(404).json({ error: { message: `Unknown custom media model ${id}` } });
     return;
   }
