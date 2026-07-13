@@ -55,7 +55,12 @@
     "newPasswordAutoComplete": "new-password",
     "currentPasswordAutoComplete": "current-password",
     "serverUnreachableBefore": "Can't reach the server. Make sure the backend is running (",
-    "serverUnreachableAfter": ")."
+    "serverUnreachableAfter": ").",
+    "signInWithMicrosoft": "Sign in with Microsoft",
+    "orDivider": "or",
+    "ssoCompleting": "Signing you in…",
+    "ssoFailed": "Sign-in failed. Please try again.",
+    "backToSignIn": "Back to sign in"
   },
   "common": {
     "save": "Save",

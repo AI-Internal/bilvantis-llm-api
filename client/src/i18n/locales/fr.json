@@ -30,7 +30,12 @@
     "newPasswordAutoComplete": "new-password",
     "currentPasswordAutoComplete": "current-password",
     "serverUnreachableBefore": "Impossible de joindre le serveur. Vérifiez que le backend est démarré (",
-    "serverUnreachableAfter": ")."
+    "serverUnreachableAfter": ").",
+    "signInWithMicrosoft": "Se connecter avec Microsoft",
+    "orDivider": "ou",
+    "ssoCompleting": "Connexion en cours…",
+    "ssoFailed": "Échec de la connexion. Veuillez réessayer.",
+    "backToSignIn": "Retour à la connexion"
   },
   "common": {
     "save": "Enregistrer",

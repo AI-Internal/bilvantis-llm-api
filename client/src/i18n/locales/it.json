@@ -30,7 +30,12 @@
     "newPasswordAutoComplete": "new-password",
     "currentPasswordAutoComplete": "current-password",
     "serverUnreachableBefore": "Impossibile raggiungere il server. Assicurati che il backend sia in esecuzione (",
-    "serverUnreachableAfter": ")."
+    "serverUnreachableAfter": ").",
+    "signInWithMicrosoft": "Accedi con Microsoft",
+    "orDivider": "o",
+    "ssoCompleting": "Accesso in corso…",
+    "ssoFailed": "Accesso non riuscito. Riprova.",
+    "backToSignIn": "Torna alla schermata di accesso"
   },
   "common": {
     "save": "Salva",

@@ -12,6 +12,7 @@ interface AuthStatus {
   email: string | null
   role: 'admin' | 'member' | null
   allowedEmailDomains: string[]
+  ssoEnabled: boolean
 }
 
 function Centered({ children }: { children: ReactNode }) {
@@ -22,7 +23,7 @@ function Centered({ children }: { children: ReactNode }) {
   )
 }
 
-function AuthForm({ initialMode, firstAccount, allowedDomains, onAuthed }: { initialMode: 'register' | 'login'; firstAccount: boolean; allowedDomains: string[]; onAuthed: () => void }) {
+function AuthForm({ initialMode, firstAccount, allowedDomains, ssoEnabled, onAuthed }: { initialMode: 'register' | 'login'; firstAccount: boolean; allowedDomains: string[]; ssoEnabled: boolean; onAuthed: () => void }) {
   const { t } = useI18n()
   const [mode, setMode] = useState<'register' | 'login'>(initialMode)
   const [email, setEmail] = useState('')
@@ -64,6 +65,23 @@ function AuthForm({ initialMode, firstAccount, allowedDomains, onAuthed }: { ini
       <div className="rounded-3xl border bg-card p-6">
         <h1 className="text-base font-medium">{heading}</h1>
         <p className="text-xs text-muted-foreground mt-1 mb-4">{description}</p>
+        {ssoEnabled && (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full mb-3"
+              onClick={() => { window.location.href = '/api/auth/sso/login' }}
+            >
+              {t('auth.signInWithMicrosoft')}
+            </Button>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-[11px] text-muted-foreground">{t('auth.orDivider')}</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+          </>
+        )}
         <form onSubmit={submit} className="space-y-3">
           <div className="space-y-1.5">
             <Label className="text-xs" htmlFor="auth-email">{t('auth.email')}</Label>
@@ -148,7 +166,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (!data.authenticated) {
     // First-ever visit (no users) defaults to Register and creates the admin;
     // afterwards default to Login but let visitors toggle to self-register.
-    return <AuthForm initialMode={data.needsSetup ? 'register' : 'login'} firstAccount={data.needsSetup} allowedDomains={data.allowedEmailDomains ?? []} onAuthed={onAuthed} />
+    return <AuthForm initialMode={data.needsSetup ? 'register' : 'login'} firstAccount={data.needsSetup} allowedDomains={data.allowedEmailDomains ?? []} ssoEnabled={data.ssoEnabled} onAuthed={onAuthed} />
   }
 
   return <>{children}</>
