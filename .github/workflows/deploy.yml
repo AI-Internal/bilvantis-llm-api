@@ -1,0 +1,37 @@
+name: Deploy to Azure VM
+
+# Runs after CI passes on main: SSHes into the Azure VM, pulls the latest
+# code, and rebuilds/restarts the container. The VM already has a git clone
+# at ~/bilvantisllmapi (set up manually) with its own .env and ./data folder,
+# which this leaves untouched.
+#
+# ── One-time setup ──────────────────────────────────────────────────────────
+# GitHub secrets (repo → Settings → Secrets and variables → Actions):
+#   AZURE_VM_HOST      bilvantis-gateway.centralus.cloudapp.azure.com
+#   AZURE_VM_USER      azureuser
+#   AZURE_VM_SSH_KEY   contents of bilvantis-llm-api-rg_key.pem (private key)
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          script: |
+            set -e
+            cd ~/bilvantisllmapi
+            git pull
+            docker compose up -d --build
+            curl -f http://127.0.0.1:3001/api/ping
