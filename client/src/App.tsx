@@ -89,7 +89,7 @@ function Brand() {
   return (
     <Link to="/" className="flex items-center gap-2 transition-opacity hover:opacity-70">
       <img src="/bilvantis-logo.png" alt="Bilvantis" className="h-8 w-auto" />
-      <span className="font-semibold tracking-tight text-base leading-none text-primary">Gateway</span>
+      <span className="font-semibold tracking-tight text-3xl leading-none text-primary">Gateway</span>
     </Link>
   )
 }
