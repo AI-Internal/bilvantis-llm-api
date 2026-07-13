@@ -808,13 +808,20 @@ function AnthropicSection() {
   const dirty = !!(draft && mapData?.map && JSON.stringify(draft) !== JSON.stringify(mapData.map))
 
   // A ready-to-use Claude Code settings.json: point ANTHROPIC_BASE_URL at this
-  // server and authenticate with the user's own proxy key (Bearer; the proxy
-  // also accepts x-api-key). Drop it at ~/.claude/settings.json.
+  // server, authenticate with the user's own proxy key (Bearer; the proxy also
+  // accepts x-api-key), and route EVERY Claude tier (default/opus/sonnet/haiku)
+  // through the gateway's auto-router instead of Anthropic's models. Drop it at
+  // ~/.claude/settings.json.
   const [copied, setCopied] = useState(false)
   const settingsJson = JSON.stringify({
     env: {
       ANTHROPIC_BASE_URL: origin,
       ANTHROPIC_AUTH_TOKEN: keyData?.apiKey ?? 'bilvantisllmapi-YOUR-KEY',
+      ANTHROPIC_MODEL: 'auto',
+      ANTHROPIC_DEFAULT_OPUS_MODEL: 'auto',
+      ANTHROPIC_DEFAULT_SONNET_MODEL: 'auto',
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: 'auto',
+      CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1',
     },
   }, null, 2)
   function copySettings() {
