@@ -12,6 +12,7 @@ import {
   type EmbeddingModelRow,
 } from '../services/embeddings.js';
 import type { SessionUser } from '../services/auth.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 
 export const embeddingsRouter = Router();
 
@@ -247,7 +248,7 @@ const updateSchema = z.object({
   })).optional(),
 });
 
-embeddingsRouter.put('/', (req: Request, res: Response) => {
+embeddingsRouter.put('/', requireAdmin, (req: Request, res: Response) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: { message: 'Invalid request body' } });

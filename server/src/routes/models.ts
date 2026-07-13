@@ -28,13 +28,26 @@ function ownedModelsFilter(alias: string): string {
   return `(${alias}.key_id IS NULL OR ${alias}.key_id IN (SELECT id FROM api_keys WHERE user_id = ?))`;
 }
 
-// A custom model (key_id set) may only be mutated by the user who owns its key,
-// so one user can't edit/delete another's private models. Catalog models
-// (key_id NULL) are shared config and not gated here.
-function mayMutateModel(req: Request, keyId: number | null): boolean {
-  if (keyId == null) return true;
-  const owns = getDb().prepare('SELECT 1 FROM api_keys WHERE id = ? AND user_id = ?').get(keyId, uid(req));
-  return Boolean(owns);
+// Write-authorization for a model row. Custom models (key_id set) may only be
+// mutated by the user who owns the bound key. Catalog models (key_id NULL) are
+// SHARED team config, so only an admin may change them. Writes the appropriate
+// error (403 for shared, 404 for someone else's custom) and returns false when
+// the caller isn't allowed.
+function guardModelWrite(req: Request, res: Response, keyId: number | null): boolean {
+  const user = (req as Request & { user?: SessionUser }).user!;
+  if (keyId == null) {
+    if (user.role !== 'admin') {
+      res.status(403).json({ error: { message: 'Admin access required to change shared catalog models', type: 'forbidden' } });
+      return false;
+    }
+    return true;
+  }
+  const owns = getDb().prepare('SELECT 1 FROM api_keys WHERE id = ? AND user_id = ?').get(keyId, user.userId);
+  if (!owns) {
+    res.status(404).json({ error: { message: 'Unknown model' } });
+    return false;
+  }
+  return true;
 }
 
 const modelUpdateSchema = z.object({
@@ -97,10 +110,11 @@ modelsRouter.delete('/custom/:id', (req: Request, res: Response) => {
 
   const db = getDb();
   const row = db.prepare("SELECT id, key_id FROM models WHERE id = ? AND platform = 'custom'").get(id) as { id: number; key_id: number | null } | undefined;
-  if (!row || !mayMutateModel(req, row.key_id)) {
+  if (!row) {
     res.status(404).json({ error: { message: `Unknown custom model ${id}` } });
     return;
   }
+  if (!guardModelWrite(req, res, row.key_id)) return;
 
   const remove = db.transaction(() => {
     db.prepare('DELETE FROM fallback_config WHERE model_db_id = ?').run(id);
@@ -126,10 +140,11 @@ modelsRouter.patch('/:id', (req: Request, res: Response) => {
 
   const db = getDb();
   const row = fetchModelRow(id);
-  if (!row || !mayMutateModel(req, row.key_id)) {
+  if (!row) {
     res.status(404).json({ error: { message: `Unknown model ${id}` } });
     return;
   }
+  if (!guardModelWrite(req, res, row.key_id)) return;
 
   const modelPatch: Partial<typeof parsed.data> = { ...parsed.data };
   delete modelPatch.fallbackEnabled;
@@ -184,10 +199,11 @@ modelsRouter.delete('/:id', (req: Request, res: Response) => {
 
   const db = getDb();
   const row = fetchModelRow(id);
-  if (!row || !mayMutateModel(req, row.key_id)) {
+  if (!row) {
     res.status(404).json({ error: { message: `Unknown model ${id}` } });
     return;
   }
+  if (!guardModelWrite(req, res, row.key_id)) return;
 
   const remove = db.transaction(() => {
     if (isCatalogManagedModel(row)) {

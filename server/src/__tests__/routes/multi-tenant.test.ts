@@ -105,6 +105,20 @@ describe('multi-tenant isolation', () => {
     expect(stillThere.body.some((m: any) => m.id === modelId)).toBe(true);
   });
 
+  it('restricts shared routing/catalog config to admins', async () => {
+    // A member cannot change the shared routing strategy; an admin can.
+    expect((await http(app, 'PUT', '/api/fallback/routing', { strategy: 'smartest' }, memberToken)).status).toBe(403);
+    expect((await http(app, 'PUT', '/api/fallback/routing', { strategy: 'smartest' }, adminToken)).status).toBe(200);
+
+    // A member cannot disable a shared catalog model.
+    const models = await http(app, 'GET', '/api/models', undefined, adminToken);
+    const catalog = models.body.find((m: any) => m.source === 'catalog');
+    expect(catalog).toBeTruthy();
+    expect((await http(app, 'PATCH', `/api/models/${catalog.id}`, { enabled: false }, memberToken)).status).toBe(403);
+    // Admin can.
+    expect((await http(app, 'PATCH', `/api/models/${catalog.id}`, { enabled: false }, adminToken)).status).toBe(200);
+  });
+
   it('lets each user manage only their own keys (delete is owner-scoped)', async () => {
     const add = await http(app, 'POST', '/api/keys', { platform: 'cerebras', label: 'a', key: 'csk_admin' }, adminToken);
     const keyId = add.body.id;

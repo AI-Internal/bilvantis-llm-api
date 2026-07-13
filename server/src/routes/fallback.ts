@@ -13,6 +13,7 @@ import { parseBudget } from '../lib/budget.js';
 import { getModelGroups } from '../services/model-groups.js';
 import { getPenaltyInspector } from '../services/penalty-inspector.js';
 import type { SessionUser } from '../services/auth.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 
 // Custom models are private to their key's owner; catalog models (key_id NULL)
 // are the shared reference catalog.
@@ -47,7 +48,7 @@ const routingSchema = z.object({
 // PUT /routing → switch strategy. Presets are just weight vectors over the three
 // axes; 'priority' falls back to the legacy manual chain order; 'custom' uses
 // the user's saved weights (optionally updated in the same request).
-fallbackRouter.put('/routing', (req: Request, res: Response) => {
+fallbackRouter.put('/routing', requireAdmin, (req: Request, res: Response) => {
   const parsed = routingSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
@@ -158,7 +159,7 @@ const updateSchema = z.array(z.object({
 }));
 
 // Update fallback chain (full replace)
-fallbackRouter.put('/', (req: Request, res: Response) => {
+fallbackRouter.put('/', requireAdmin, (req: Request, res: Response) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
@@ -218,7 +219,7 @@ function getBudgetScore(m: { monthly_token_budget: string; tpd_limit: number | n
   return maxNum * mult;
 }
 
-fallbackRouter.post('/sort/:preset', (req: Request, res: Response) => {
+fallbackRouter.post('/sort/:preset', requireAdmin, (req: Request, res: Response) => {
   const preset = String(req.params.preset);
   const db = getDb();
   let models: { id: number }[] = [];

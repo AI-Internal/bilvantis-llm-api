@@ -8,6 +8,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
+import { requireAdmin } from '../middleware/requireAdmin.js';
 
 export const profilesRouter = Router();
 
@@ -74,7 +75,7 @@ profilesRouter.get('/active', (_req: Request, res: Response) => {
 });
 
 // POST /api/profiles/active — set or clear the active profile
-profilesRouter.post('/active', (req: Request, res: Response) => {
+profilesRouter.post('/active', requireAdmin, (req: Request, res: Response) => {
   const db = getDb();
   const profileId = req.body?.profileId;
 
@@ -128,7 +129,7 @@ profilesRouter.get('/:id/models', (req: Request, res: Response) => {
  * Creates a new custom profile.
  * Allows optional cloning of the active profile's model priority and layout configuration.
  */
-profilesRouter.post('/', (req: Request, res: Response) => {
+profilesRouter.post('/', requireAdmin, (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: { message: parsed.error.errors.map(e => e.message).join(', ') } });
@@ -194,7 +195,7 @@ function copyFromDefault(db: any, profileId: number) {
 }
 
 // PUT /api/profiles/:id — update profile metadata
-profilesRouter.put('/:id', (req: Request, res: Response) => {
+profilesRouter.put('/:id', requireAdmin, (req: Request, res: Response) => {
   const db = getDb();
   const profileId = getId(req);
   const profile = db.prepare('SELECT id, type FROM profiles WHERE id = ?').get(profileId) as any;
@@ -258,7 +259,7 @@ const reorderSchema = z.array(z.object({
   enabled: z.boolean(),
 }));
 
-profilesRouter.put('/:id/reorder', (req: Request, res: Response) => {
+profilesRouter.put('/:id/reorder', requireAdmin, (req: Request, res: Response) => {
   const db = getDb();
   const profileId = getId(req);
   const profile = db.prepare('SELECT id FROM profiles WHERE id = ?').get(profileId) as any;
@@ -286,7 +287,7 @@ profilesRouter.put('/:id/reorder', (req: Request, res: Response) => {
 });
 
 // POST /api/profiles/:id/reset — reset a profile to fallback baseline
-profilesRouter.post('/:id/reset', (req: Request, res: Response) => {
+profilesRouter.post('/:id/reset', requireAdmin, (req: Request, res: Response) => {
   const db = getDb();
   const profileId = getId(req);
   const profile = db.prepare('SELECT id FROM profiles WHERE id = ?').get(profileId) as any;
@@ -325,7 +326,7 @@ profilesRouter.post('/:id/reset', (req: Request, res: Response) => {
 });
 
 // DELETE /api/profiles/:id — delete a profile
-profilesRouter.delete('/:id', (req: Request, res: Response) => {
+profilesRouter.delete('/:id', requireAdmin, (req: Request, res: Response) => {
   const db = getDb();
   const profileId = getId(req);
   const profile = db.prepare('SELECT id, type FROM profiles WHERE id = ?').get(profileId) as any;
@@ -422,7 +423,7 @@ function sortProfileModels(db: any, profileId: number, preset: string) {
   transaction();
 }
 
-profilesRouter.post('/:id/sort/:preset', (req: Request, res: Response) => {
+profilesRouter.post('/:id/sort/:preset', requireAdmin, (req: Request, res: Response) => {
   const db = getDb();
   const profileId = getId(req);
   const profile = db.prepare('SELECT id FROM profiles WHERE id = ?').get(profileId) as any;

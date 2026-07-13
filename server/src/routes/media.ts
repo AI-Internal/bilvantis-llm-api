@@ -189,7 +189,25 @@ mediaRouter.put('/:id', (req: Request, res: Response) => {
     res.status(400).json({ error: { message: 'Invalid request body' } });
     return;
   }
-  const info = getDb().prepare('UPDATE media_models SET enabled = ? WHERE id = ?').run(parsed.data.enabled ? 1 : 0, id);
+  const db = getDb();
+  const row = db.prepare('SELECT key_id FROM media_models WHERE id = ?').get(id) as { key_id: number | null } | undefined;
+  if (!row) {
+    res.status(404).json({ error: { message: `Unknown media model ${id}` } });
+    return;
+  }
+  // Catalog media models (key_id NULL) are shared config → admin only; a custom
+  // media model may be toggled by the user who owns its key.
+  const user = (req as Request & { user?: SessionUser }).user!;
+  if (row.key_id == null) {
+    if (user.role !== 'admin') {
+      res.status(403).json({ error: { message: 'Admin access required', type: 'forbidden' } });
+      return;
+    }
+  } else if (!db.prepare('SELECT 1 FROM api_keys WHERE id = ? AND user_id = ?').get(row.key_id, user.userId)) {
+    res.status(404).json({ error: { message: `Unknown media model ${id}` } });
+    return;
+  }
+  const info = db.prepare('UPDATE media_models SET enabled = ? WHERE id = ?').run(parsed.data.enabled ? 1 : 0, id);
   if (info.changes === 0) {
     res.status(404).json({ error: { message: `Unknown media model ${id}` } });
     return;
