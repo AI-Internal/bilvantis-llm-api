@@ -74,23 +74,26 @@ describe('Fallback API', () => {
        WHERE platform <> ?
        LIMIT 1
     `).get(target.platform) as { platform: string; model_id: string };
+    // token-usage is per-user, so attribute the seeded key + requests to the
+    // dashboard caller (the first/only user).
+    const userId = (db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get() as { id: number }).id;
     const secret = encrypt('usage-test-key');
     db.prepare(`
-      INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled)
-      VALUES (?, 'usage', ?, ?, ?, 'healthy', 1)
-    `).run(target.platform, secret.encrypted, secret.iv, secret.authTag);
+      INSERT INTO api_keys (platform, label, encrypted_key, iv, auth_tag, status, enabled, user_id)
+      VALUES (?, 'usage', ?, ?, ?, 'healthy', 1, ?)
+    `).run(target.platform, secret.encrypted, secret.iv, secret.authTag, userId);
     db.prepare(`
-      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type)
-      VALUES (?, ?, NULL, 'success', 123, 45, 10, NULL, 'chat')
-    `).run(target.platform, target.model_id);
+      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, user_id)
+      VALUES (?, ?, NULL, 'success', 123, 45, 10, NULL, 'chat', ?)
+    `).run(target.platform, target.model_id, userId);
     db.prepare(`
-      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type)
-      VALUES (?, ?, NULL, 'success', 1000, 1000, 10, NULL, 'chat')
-    `).run(other.platform, other.model_id);
+      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, user_id)
+      VALUES (?, ?, NULL, 'success', 1000, 1000, 10, NULL, 'chat', ?)
+    `).run(other.platform, other.model_id, userId);
     db.prepare(`
-      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type)
-      VALUES (?, ?, NULL, 'success', 500, 500, 10, NULL, 'embedding')
-    `).run(target.platform, target.model_id);
+      INSERT INTO requests (platform, model_id, key_id, status, input_tokens, output_tokens, latency_ms, error, request_type, user_id)
+      VALUES (?, ?, NULL, 'success', 500, 500, 10, NULL, 'embedding', ?)
+    `).run(target.platform, target.model_id, userId);
 
     const { status, body } = await request(app, 'GET', '/api/fallback/token-usage');
 

@@ -105,6 +105,19 @@ describe('multi-tenant isolation', () => {
     expect(stillThere.body.some((m: any) => m.id === modelId)).toBe(true);
   });
 
+  it('scopes the monthly token budget to the caller', async () => {
+    // The member has no provider keys, so their budget/usage is empty — never
+    // the team's aggregate.
+    const member = await http(app, 'GET', '/api/fallback/token-usage', undefined, memberToken);
+    expect(member.status).toBe(200);
+    expect(member.body.totalBudget).toBe(0);
+    expect(member.body.totalUsed).toBe(0);
+    // The admin has a groq key (added earlier), so they see a non-empty budget.
+    const admin = await http(app, 'GET', '/api/fallback/token-usage', undefined, adminToken);
+    expect(admin.status).toBe(200);
+    expect(admin.body.totalBudget).toBeGreaterThan(0);
+  });
+
   it('restricts shared routing/catalog config to admins', async () => {
     // A member cannot change the shared routing strategy; an admin can.
     expect((await http(app, 'PUT', '/api/fallback/routing', { strategy: 'smartest' }, memberToken)).status).toBe(403);

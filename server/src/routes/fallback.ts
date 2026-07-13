@@ -249,15 +249,16 @@ fallbackRouter.post('/sort/:preset', requireAdmin, (req: Request, res: Response)
 });
 
 // Token usage per model for the stacked bar
-fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
+fallbackRouter.get('/token-usage', (req: Request, res: Response) => {
   const db = getDb();
+  const userId = uid(req);
 
-  // Get platforms that have enabled keys
+  // Platforms the CALLER has enabled keys for (not the whole team's).
   const platforms = db.prepare(`
     SELECT DISTINCT ak.platform
     FROM api_keys ak
-    WHERE ak.enabled = 1
-  `).all() as { platform: string }[];
+    WHERE ak.enabled = 1 AND ak.user_id = ?
+  `).all(userId) as { platform: string }[];
   const platformSet = new Set(platforms.map(p => p.platform));
 
   // Check if there is an active profile
@@ -280,8 +281,9 @@ fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
       FROM profile_models pm
       JOIN models m ON m.id = pm.model_db_id
       WHERE pm.profile_id = ? AND m.enabled = 1
+        AND (m.key_id IS NULL OR m.key_id IN (SELECT id FROM api_keys WHERE user_id = ?))
       ORDER BY pm.priority ASC
-    `).all(activeProfileId) as any[];
+    `).all(activeProfileId, userId) as any[];
   } else {
     // Default mode: use fallback_config (only include enabled models)
     rawModels = db.prepare(`
@@ -291,8 +293,9 @@ fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
       FROM fallback_config fc
       JOIN models m ON m.id = fc.model_db_id
       WHERE m.enabled = 1
+        AND (m.key_id IS NULL OR m.key_id IN (SELECT id FROM api_keys WHERE user_id = ?))
       ORDER BY fc.priority ASC
-    `).all() as any[];
+    `).all(userId) as any[];
   }
 
   // Build per-model breakdown (only platforms with keys), preserving enabled state
@@ -301,8 +304,9 @@ fallbackRouter.get('/token-usage', (_req: Request, res: Response) => {
     FROM requests
     WHERE created_at >= datetime('now', 'start of month')
       AND request_type = 'chat'
+      AND user_id = ?
     GROUP BY platform, model_id
-  `).all() as { platform: string; model_id: string; used: number }[];
+  `).all(userId) as { platform: string; model_id: string; used: number }[];
   const usageByModel = new Map(usageRows.map(r => [`${r.platform}:${r.model_id}`, r.used]));
 
   const modelBudgets = rawModels
