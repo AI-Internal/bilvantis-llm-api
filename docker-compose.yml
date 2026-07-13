@@ -13,8 +13,12 @@ services:
     # exposed to the internet. Set HOST_BIND=0.0.0.0 to reach it from your LAN.
     ports:
       - "${HOST_BIND:-127.0.0.1}:${PORT:-3001}:3001"
+    # Persistence: the SQLite DB (accounts, encrypted keys, usage, config) lives
+    # here as a plain host folder ./data, so it survives `docker compose down`,
+    # `down -v`, prune, and image rebuilds. Back it up by copying ./data/bilvantis.db.
+    # On Linux, if the container can't write, run once:  mkdir -p data && sudo chown -R 1000:1000 data
     volumes:
-      - bilvantisllmapi-data:/app/server/data
+      - ./data:/app/server/data
     restart: unless-stopped
     healthcheck:
       test:
@@ -28,6 +32,3 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
-
-volumes:
-  bilvantisllmapi-data:
