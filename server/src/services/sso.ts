@@ -8,6 +8,11 @@ import { createUser, createSession, isAllowedEmailDomain, type SessionUser, type
 // ends by calling the existing createSession(), so requireAuth and every
 // downstream route need zero changes — SSO is just a second way to obtain
 // the same opaque bearer token password login already produces.
+//
+// Multi-tenant by design: the app is registered in Azure as "Accounts in any
+// organizational directory", so sign-in works from any Entra tenant (not just
+// one pinned tenant) — access is gated purely by isAllowedEmailDomain(),
+// which provisionSsoUser() already enforces.
 
 const STATE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const JWKS_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -20,10 +25,6 @@ function requiredEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is not configured`);
   return value;
-}
-
-function tenantId(): string {
-  return requiredEnv('AZURE_AD_TENANT_ID');
 }
 
 function clientId(): string {
@@ -42,20 +43,22 @@ export function publicAppUrl(): string {
   return requiredEnv('PUBLIC_APP_URL').replace(/\/$/, '');
 }
 
+// "organizations" is Microsoft's multi-tenant pseudo-tenant segment: it
+// accepts sign-in from any Entra organizational tenant, matching the
+// "AzureADMultipleOrgs" account type set on the App Registration. The JWKS
+// signing keys are identical across the tenant-specific/common/organizations
+// endpoint variants (one global key set backs the v2.0 endpoint), so this
+// isn't tenant-specific in any way that matters for verification either.
 function authorizeEndpoint(): string {
-  return `https://login.microsoftonline.com/${tenantId()}/oauth2/v2.0/authorize`;
+  return 'https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize';
 }
 
 function tokenEndpoint(): string {
-  return `https://login.microsoftonline.com/${tenantId()}/oauth2/v2.0/token`;
+  return 'https://login.microsoftonline.com/organizations/oauth2/v2.0/token';
 }
 
 function jwksUri(): string {
-  return `https://login.microsoftonline.com/${tenantId()}/discovery/v2.0/keys`;
-}
-
-function issuer(): string {
-  return `https://login.microsoftonline.com/${tenantId()}/v2.0`;
+  return 'https://login.microsoftonline.com/organizations/discovery/v2.0/keys';
 }
 
 export function redirectUri(): string {
@@ -211,7 +214,14 @@ async function verifyIdToken(idToken: string, expectedNonce: string): Promise<Ss
     throw new Error('ID token signature verification failed');
   }
 
-  if (payload.iss !== issuer()) throw new Error('Unexpected ID token issuer');
+  // Multi-tenant issuer check: self-consistent (matches the token's own `tid`)
+  // rather than pinned to one known tenant, since sign-in can come from any
+  // Entra org. Safe because the RS256 signature above is already verified
+  // against Microsoft's real public keys — only Microsoft can produce a
+  // validly-signed token, and it always sets `tid` to the real signed-in
+  // user's actual tenant, so this can't be spoofed by an attacker.
+  const expectedIssuer = `https://login.microsoftonline.com/${payload.tid}/v2.0`;
+  if (payload.iss !== expectedIssuer) throw new Error('Unexpected ID token issuer');
   if (payload.aud !== clientId()) throw new Error('Unexpected ID token audience');
   if (typeof payload.exp !== 'number' || payload.exp * 1000 < Date.now()) throw new Error('ID token expired');
   if (payload.nonce !== expectedNonce) throw new Error('ID token nonce mismatch');
